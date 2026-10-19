@@ -34,6 +34,7 @@
     <script>window.__firebaseSdkFailed = false;</script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js" onerror="window.__firebaseSdkFailed = true;"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js" onerror="window.__firebaseSdkFailed = true;"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js" onerror="window.__firebaseSdkFailed = true;"></script>
     
     <style>
         @font-face {
@@ -221,7 +222,7 @@
                     <!-- Error Alert -->
                     <div id="login-error" class="hidden text-red-600 bg-red-50 text-xs rounded-xl p-3 text-center border border-red-200 font-semibold flex items-center justify-center gap-1.5">
                         <i class="fa-solid fa-circle-exclamation text-sm"></i>
-                        <span>ລະຫັດ ຫຼື ລະຫັດຜ່ານບໍ່ຖືກຕ້ອງ, ກະລຸນາກວດສອບຄືນໃໝ່!</span>
+                        <span id="login-error-text">ລະຫັດ ຫຼື ລະຫັດຜ່ານບໍ່ຖືກຕ້ອງ, ກະລຸນາກວດສອບຄືນໃໝ່!</span>
                     </div>
 
                     <div>
@@ -269,10 +270,9 @@
         </div>
 
         <!-- Admin-only (isAdmin: true accounts, see isAcademicOverseer()): every teacher's
-             login code + current effective password (Firebase override if the teacher has
-             changed it, else the default from teacherAccounts). Rendered by
-             renderAdminTeacherAccountsSection(), called from renderTeacherHome(). Read-only —
-             this does not let the admin change anyone else's password, only see it. -->
+             login code + Firebase Authentication email. Passwords are never shown (Firebase
+             Auth doesn't reveal them); reset one with firebase/setup-teachers.mjs --reset.
+             Rendered by renderAdminTeacherAccountsSection(), called from renderTeacherHome(). -->
         <div id="teacher-home-admin-accounts-section" class="hidden bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-3">
             <h3 class="text-sm font-bold text-slate-600 uppercase tracking-wider">ບັນຊີຄູທັງໝົດ (Admin)</h3>
             <div class="overflow-x-auto">
@@ -281,12 +281,13 @@
                         <tr class="text-xs text-slate-500 uppercase border-b border-slate-200">
                             <th class="py-2 pr-4">ID</th>
                             <th class="py-2 pr-4">ຊື່</th>
-                            <th class="py-2 pr-4">ລະຫັດຜ່ານ</th>
+                            <th class="py-2 pr-4">Email (Firebase Auth)</th>
                         </tr>
                     </thead>
                     <tbody id="admin-teacher-accounts-tbody"></tbody>
                 </table>
             </div>
+            <p class="text-xs text-slate-500">ລະຫັດຜ່ານເກັບໄວ້ໃນ Firebase Authentication ເທົ່ານັ້ນ ແລະ ເບິ່ງບໍ່ໄດ້. ຖ້າຄູລືມລະຫັດຜ່ານ, ໃຫ້ແລ່ນ <code class="font-mono">node firebase/setup-teachers.mjs --reset KHUxx</code> ເພື່ອອອກລະຫັດໃໝ່.</p>
         </div>
 
         <!-- ອາຈານ ເວດ (KHU24) exclusive: monthly grades across every class. Gated in
@@ -368,9 +369,9 @@
         </div>
     </div>
 
-    <!-- Change-password modal: available from the teacher dashboard. Verifies the current
-         password, then writes the new one to Firebase under /teacherPasswords/{code} so it
-         persists across devices (see handleChangePassword()). -->
+    <!-- Change-password modal: available from the teacher dashboard. Firebase
+         Authentication re-checks the current password, then stores the new one (see
+         handleChangePassword()). Firebase requires at least 6 characters. -->
     <div id="view-change-password-modal" class="hidden fixed inset-0 bg-slate-900/60 z-[90] flex items-center justify-center px-4 no-print">
         <div class="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-4">
             <h3 class="text-lg font-bold text-slate-800">ປ່ຽນລະຫັດຜ່ານ</h3>
@@ -381,7 +382,7 @@
                 </div>
                 <div>
                     <label class="block text-xs font-semibold text-slate-500 mb-1">ລະຫັດຜ່ານໃໝ່</label>
-                    <input id="change-password-new" type="password" required minlength="4" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+                    <input id="change-password-new" type="password" required minlength="6" class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
                 </div>
                 <div id="change-password-error" class="hidden text-red-600 bg-red-50 text-xs rounded-lg p-2 text-center border border-red-200 font-semibold"></div>
                 <div class="flex gap-2 pt-2">
@@ -1840,20 +1841,34 @@
 
         firebase.initializeApp(firebaseConfig);
         const db = firebase.database();
+        const auth = firebase.auth();
 
-        // Per-teacher password overrides (set via handleChangePassword), synced from
-        // Firebase under /teacherPasswords/{code} so a password change follows the
-        // teacher to any device. Falls back to the default password in teacherAccounts
-        // until a teacher changes it.
-        let teacherPasswordOverrides = {};
-        db.ref('teacherPasswords').on('value', snap => {
-            teacherPasswordOverrides = snap.val() || {};
-        }, err => console.error('Password sync failed:', err));
+        // Teachers sign in with Firebase Authentication (email/password). They still type
+        // only their code (KHU01); the app turns that into khu01@TEACHER_EMAIL_DOMAIN.
+        // Accounts + the per-teacher class/subject roles that database.rules.json enforces
+        // are created by firebase/setup-teachers.mjs (same domain constant there).
+        const TEACHER_EMAIL_DOMAIN = 'haakkeo-m51-grades.firebaseapp.com';
+        function teacherCodeToEmail(code) {
+            return `${code.toLowerCase()}@${TEACHER_EMAIL_DOMAIN}`;
+        }
+        // Firebase Auth rejects passwords under 6 characters, but teachers kept their
+        // existing 4-digit passwords when accounts moved to Firebase. Short passwords get
+        // this fixed suffix before being sent to Firebase, so teachers type them unchanged.
+        // Must match SHORT_PASSWORD_SUFFIX in firebase/setup-teachers.mjs.
+        const SHORT_PASSWORD_SUFFIX = '#haakkeo';
+        function toFirebasePassword(password) {
+            return password.length >= 6 ? password : password + SHORT_PASSWORD_SUFFIX;
+        }
+        function teacherCodeFromUser(user) {
+            if (!user || !user.email) return null;
+            return user.email.split('@')[0].toUpperCase();
+        }
 
         // Refs are assigned once we know which class the logged-in teacher belongs to
         // (see attachClassDataListeners). Declared here so every function can reach them.
         let studentsRef = null;
         let gradesRef = null;
+        let gradesListenRef = null; // gradesRef, or gradesRef/{subject} for a subject teacher
         let behaviorRef = null;
         let reportDatesRef = null;
         let currentClassKey = null; // e.g. "51" for ມ.5/1
@@ -1887,7 +1902,7 @@
             const detail = document.getElementById('firebase-error-detail');
             let msg = (err && err.message) ? err.message : String(err);
             if (err && err.code === 'PERMISSION_DENIED') {
-                msg = 'ຖືກປະຕິເສດສິດອ່ານ/ຂຽນຂໍ້ມູນ (PERMISSION_DENIED) — ກະລຸນາກວດສອບວ່າ Firebase Realtime Database Rules ໄດ້ຕັ້ງ ".read": true, ".write": true ແລະກົດ Publish ແລ້ວ, ຫຼືວ່າ Test Mode ອາດໝົດອາຍຸ (30 ມື້).';
+                msg = 'ທ່ານບໍ່ມີສິດອ່ານ/ຂຽນຂໍ້ມູນນີ້ (PERMISSION_DENIED) — ຄູແຕ່ລະຄົນເຂົ້າເຖິງໄດ້ສະເພາະຫ້ອງ/ວິຊາທີ່ຕົນສອນ. ຖ້າແນ່ໃຈວ່າທ່ານສອນຫ້ອງ/ວິຊານີ້ ກະລຸນາແຈ້ງ admin ໃຫ້ແລ່ນ firebase/setup-teachers.mjs ເພື່ອອັບເດດສິດ.';
             }
             detail.innerText = msg;
             box.classList.remove('hidden');
@@ -2529,35 +2544,37 @@
         // Replaces the old shared per-class codes (HK{classKey}00 / HK{classKey}NN):
         // each teacher now logs in with their own code + password and lands on a
         // personal dashboard listing every class/subject they teach (see
-        // renderTeacherHome() and handleLogin()). Passwords can be changed by the
-        // teacher themselves (see handleChangePassword()) and persist in Firebase
-        // under /teacherPasswords/{code} so a change follows them to any device.
+        // renderTeacherHome() and handleLogin()). Passwords live only in Firebase
+        // Authentication (see firebase/setup-teachers.mjs), never in this file. This list
+        // only drives the UI -- what each teacher can actually read/write is enforced by
+        // database.rules.json from /teacherRoles, which the setup script generates from
+        // this same list, so re-run it after editing assignments here.
         const teacherAccounts = {
-            KHU01: { password: "1001", name: "ອາຈານ ບົວຫວັນ ຈັນທະວົງ", homeroomClasses: ['11'], subjectRoles: [{ classKey: '11', subject: 'history' }, { classKey: '12', subject: 'history' }, { classKey: '21', subject: 'history' }, { classKey: '22', subject: 'history' }, { classKey: '31', subject: 'history' }, { classKey: '32', subject: 'history' }, { classKey: '41', subject: 'history' }, { classKey: '42', subject: 'history' }] },
-            KHU02: { password: "1002", name: "ອາຈານ ຂັນຄຳ ໄຊຍະສວຍ", homeroomClasses: [], subjectRoles: [{ classKey: '11', subject: 'lao' }, { classKey: '12', subject: 'lao' }, { classKey: '31', subject: 'civics' }, { classKey: '32', subject: 'civics' }] },
-            KHU03: { password: "1003", name: "ອາຈານ ສຸກສັນ ທຳມະວົງສາ", homeroomClasses: [], subjectRoles: [{ classKey: '11', subject: 'math' }, { classKey: '12', subject: 'math' }, { classKey: '21', subject: 'math' }] },
-            KHU04: { password: "1004", name: "ອາຈານ ໄໝ ສຸດທິພອນ", homeroomClasses: [], subjectRoles: [{ classKey: '11', subject: 'civics' }, { classKey: '12', subject: 'civics' }, { classKey: '21', subject: 'civics' }, { classKey: '22', subject: 'civics' }, { classKey: '51', subject: 'civics' }, { classKey: '52', subject: 'civics' }, { classKey: '61', subject: 'civics' }, { classKey: '62', subject: 'civics' }] },
-            KHU05: { password: "1005", name: "ອາຈານ ອໍາມະລາ ອິນທະລັງສີ", homeroomClasses: ['12'], subjectRoles: [{ classKey: '11', subject: 'science' }, { classKey: '12', subject: 'science' }, { classKey: '31', subject: 'biology' }, { classKey: '32', subject: 'biology' }, { classKey: '41', subject: 'biology' }, { classKey: '42', subject: 'biology' }] },
-            KHU06: { password: "1006", name: "ອາຈານ ທອງເຫຼືອງ ແກ້ວຫຼວງໂຄດ", homeroomClasses: ['21'], subjectRoles: [{ classKey: '11', subject: 'geography' }, { classKey: '12', subject: 'geography' }, { classKey: '21', subject: 'geography' }, { classKey: '22', subject: 'geography' }, { classKey: '31', subject: 'geography' }, { classKey: '32', subject: 'geography' }, { classKey: '41', subject: 'geography' }, { classKey: '42', subject: 'geography' }] },
-            KHU07: { password: "1007", name: "ອາຈານຈາກ ຄວສ", homeroomClasses: [], subjectRoles: [{ classKey: '11', subject: 'ict' }, { classKey: '12', subject: 'ict' }, { classKey: '21', subject: 'ict' }, { classKey: '22', subject: 'ict' }, { classKey: '31', subject: 'ict' }, { classKey: '32', subject: 'ict' }, { classKey: '41', subject: 'ict' }, { classKey: '42', subject: 'ict' }, { classKey: '51', subject: 'ict' }, { classKey: '52', subject: 'ict' }, { classKey: '61', subject: 'ict' }, { classKey: '62', subject: 'ict' }, { classKey: '71', subject: 'ict' }, { classKey: '72', subject: 'ict' }] },
-            KHU08: { password: "1008", name: "IH-Vientiane", homeroomClasses: [], subjectRoles: [{ classKey: '11', subject: 'english' }, { classKey: '12', subject: 'english' }, { classKey: '21', subject: 'english' }, { classKey: '22', subject: 'english' }, { classKey: '31', subject: 'english' }, { classKey: '32', subject: 'english' }, { classKey: '41', subject: 'english' }, { classKey: '42', subject: 'english' }, { classKey: '51', subject: 'english' }, { classKey: '52', subject: 'english' }, { classKey: '61', subject: 'english' }, { classKey: '62', subject: 'english' }, { classKey: '71', subject: 'english' }, { classKey: '72', subject: 'english' }] },
-            KHU09: { password: "1009", name: "ອາຈານ ວິໄລສຸກ ໄຂຍະວົງ", homeroomClasses: [], subjectRoles: [{ classKey: '11', subject: 'pe' }, { classKey: '12', subject: 'pe' }, { classKey: '21', subject: 'pe' }, { classKey: '22', subject: 'pe' }, { classKey: '31', subject: 'pe' }, { classKey: '32', subject: 'pe' }, { classKey: '41', subject: 'pe' }, { classKey: '42', subject: 'pe' }, { classKey: '51', subject: 'pe' }, { classKey: '52', subject: 'pe' }, { classKey: '61', subject: 'pe' }, { classKey: '62', subject: 'pe' }, { classKey: '71', subject: 'pe' }, { classKey: '72', subject: 'pe' }] },
-            KHU10: { password: "1010", name: "ອາຈານ ນົກ ແພງສົມບັດ", homeroomClasses: ['31'], subjectRoles: [{ classKey: '31', subject: 'lao' }, { classKey: '32', subject: 'lao' }, { classKey: '41', subject: 'lao' }, { classKey: '42', subject: 'lao' }] },
-            KHU11: { password: "1011", name: "ອາຈານ ພຸດສະດີ ວົງພັກດີ", homeroomClasses: ['42'], subjectRoles: [{ classKey: '21', subject: 'physics' }, { classKey: '22', subject: 'physics' }, { classKey: '51', subject: 'physics' }, { classKey: '52', subject: 'physics' }] },
-            KHU12: { password: "1012", name: "ອາຈານ ຄໍາຄ່ອງ ລາດສະວົງ", homeroomClasses: ['41'], subjectRoles: [{ classKey: '21', subject: 'chemistry' }, { classKey: '22', subject: 'chemistry' }, { classKey: '31', subject: 'chemistry' }, { classKey: '32', subject: 'chemistry' }, { classKey: '41', subject: 'chemistry' }, { classKey: '42', subject: 'chemistry' }] },
-            KHU13: { password: "1013", name: "ອາຈານ ບຸນປອນ ເພຍໄຊຍະວົງ", homeroomClasses: ['62'], subjectRoles: [{ classKey: '21', subject: 'biology' }, { classKey: '22', subject: 'biology' }, { classKey: '51', subject: 'biology' }, { classKey: '52', subject: 'biology' }, { classKey: '61', subject: 'biology' }, { classKey: '62', subject: 'biology' }, { classKey: '71', subject: 'biology' }, { classKey: '72', subject: 'biology' }] },
-            KHU14: { password: "1014", name: "ອາຈານ ທອງທິບ ແກ້ວອຸດົມ", isAdmin: true, homeroomClasses: ['11', '12', '21', '22', '31', '32', '41', '42', '51', '52', '61', '62', '71', '72'], subjectRoles: [{ classKey: '22', subject: 'math' }, { classKey: '71', subject: 'math' }, { classKey: '72', subject: 'math' }] },
-            KHU15: { password: "1015", name: "ອາຈານ ສຸນີ ແກ້ວດວງດີ", homeroomClasses: ['32'], subjectRoles: [{ classKey: '31', subject: 'physics' }, { classKey: '32', subject: 'physics' }, { classKey: '41', subject: 'physics' }, { classKey: '42', subject: 'physics' }] },
-            KHU16: { password: "1016", name: "ອາຈານ ໄຈ ຮຸ່ງນະຄອນ", homeroomClasses: [], subjectRoles: [{ classKey: '31', subject: 'math' }, { classKey: '32', subject: 'math' }, { classKey: '41', subject: 'math' }, { classKey: '42', subject: 'math' }] },
-            KHU17: { password: "1017", name: "ອາຈານ ຕິມ ເພັດບົວທອນ", homeroomClasses: ['72'], subjectRoles: [{ classKey: '51', subject: 'lao' }, { classKey: '52', subject: 'lao' }, { classKey: '71', subject: 'lao' }, { classKey: '72', subject: 'lao' }] },
-            KHU18: { password: "1018", name: "ອາຈານ ຄຳສວນ ທອງມະນີວົງ", homeroomClasses: [], subjectRoles: [{ classKey: '41', subject: 'civics' }, { classKey: '42', subject: 'civics' }, { classKey: '71', subject: 'civics' }, { classKey: '72', subject: 'civics' }] },
-            KHU19: { password: "1019", name: "ອາຈານ ສີສຸດາ ໄຊໝື່ນວົງ", homeroomClasses: ['51'], subjectRoles: [{ classKey: '51', subject: 'chemistry' }, { classKey: '52', subject: 'chemistry' }, { classKey: '61', subject: 'chemistry' }, { classKey: '62', subject: 'chemistry' }, { classKey: '71', subject: 'chemistry' }, { classKey: '72', subject: 'chemistry' }] },
-            KHU20: { password: "1020", name: "ອາຈານ ພອນສະຫວັນ ວິໄລທອງ", homeroomClasses: ['52'], subjectRoles: [{ classKey: '51', subject: 'geography' }, { classKey: '52', subject: 'geography' }, { classKey: '61', subject: 'geography' }, { classKey: '62', subject: 'geography' }, { classKey: '71', subject: 'geography' }, { classKey: '72', subject: 'geography' }] },
-            KHU21: { password: "1021", name: "ອາຈານ ແສງພະຈັນ ສີວິໄລ", homeroomClasses: ['71'], subjectRoles: [{ classKey: '51', subject: 'history' }, { classKey: '52', subject: 'history' }, { classKey: '61', subject: 'history' }, { classKey: '62', subject: 'history' }, { classKey: '71', subject: 'history' }, { classKey: '72', subject: 'history' }] },
-            KHU22: { password: "1022", name: "ອາຈານ ຄໍາສະຫວາດ ຫຸມພາວົງ", homeroomClasses: ['61'], subjectRoles: [{ classKey: '51', subject: 'math' }, { classKey: '52', subject: 'math' }, { classKey: '61', subject: 'math' }, { classKey: '62', subject: 'math' }] },
-            KHU23: { password: "1023", name: "ອາຈານ ຈັນທະພອນ ກ່ຳພຸດທະສັກ", homeroomClasses: ['22'], subjectRoles: [{ classKey: '21', subject: 'lao' }, { classKey: '22', subject: 'lao' }, { classKey: '61', subject: 'lao' }, { classKey: '62', subject: 'lao' }] },
-            KHU24: { password: "1024", name: "ອາຈານ ເວດທະວີໄຊ ແຜງວີໄຊ", homeroomClasses: [], subjectRoles: [{ classKey: '61', subject: 'physics' }, { classKey: '62', subject: 'physics' }, { classKey: '71', subject: 'physics' }, { classKey: '72', subject: 'physics' }] },
-            KHU25: { password: "1025", name: "Japan", homeroomClasses: [], subjectRoles: [{ classKey: '11', subject: 'japanese' }, { classKey: '12', subject: 'japanese' }, { classKey: '21', subject: 'japanese' }, { classKey: '22', subject: 'japanese' }, { classKey: '31', subject: 'japanese' }, { classKey: '32', subject: 'japanese' }, { classKey: '41', subject: 'japanese' }, { classKey: '42', subject: 'japanese' }, { classKey: '51', subject: 'japanese' }, { classKey: '52', subject: 'japanese' }, { classKey: '61', subject: 'japanese' }, { classKey: '62', subject: 'japanese' }, { classKey: '71', subject: 'japanese' }, { classKey: '72', subject: 'japanese' }] },
+            KHU01: { name: "ອາຈານ ບົວຫວັນ ຈັນທະວົງ", homeroomClasses: ['11'], subjectRoles: [{ classKey: '11', subject: 'history' }, { classKey: '12', subject: 'history' }, { classKey: '21', subject: 'history' }, { classKey: '22', subject: 'history' }, { classKey: '31', subject: 'history' }, { classKey: '32', subject: 'history' }, { classKey: '41', subject: 'history' }, { classKey: '42', subject: 'history' }] },
+            KHU02: { name: "ອາຈານ ຂັນຄຳ ໄຊຍະສວຍ", homeroomClasses: [], subjectRoles: [{ classKey: '11', subject: 'lao' }, { classKey: '12', subject: 'lao' }, { classKey: '31', subject: 'civics' }, { classKey: '32', subject: 'civics' }] },
+            KHU03: { name: "ອາຈານ ສຸກສັນ ທຳມະວົງສາ", homeroomClasses: [], subjectRoles: [{ classKey: '11', subject: 'math' }, { classKey: '12', subject: 'math' }, { classKey: '21', subject: 'math' }] },
+            KHU04: { name: "ອາຈານ ໄໝ ສຸດທິພອນ", homeroomClasses: [], subjectRoles: [{ classKey: '11', subject: 'civics' }, { classKey: '12', subject: 'civics' }, { classKey: '21', subject: 'civics' }, { classKey: '22', subject: 'civics' }, { classKey: '51', subject: 'civics' }, { classKey: '52', subject: 'civics' }, { classKey: '61', subject: 'civics' }, { classKey: '62', subject: 'civics' }] },
+            KHU05: { name: "ອາຈານ ອໍາມະລາ ອິນທະລັງສີ", homeroomClasses: ['12'], subjectRoles: [{ classKey: '11', subject: 'science' }, { classKey: '12', subject: 'science' }, { classKey: '31', subject: 'biology' }, { classKey: '32', subject: 'biology' }, { classKey: '41', subject: 'biology' }, { classKey: '42', subject: 'biology' }] },
+            KHU06: { name: "ອາຈານ ທອງເຫຼືອງ ແກ້ວຫຼວງໂຄດ", homeroomClasses: ['21'], subjectRoles: [{ classKey: '11', subject: 'geography' }, { classKey: '12', subject: 'geography' }, { classKey: '21', subject: 'geography' }, { classKey: '22', subject: 'geography' }, { classKey: '31', subject: 'geography' }, { classKey: '32', subject: 'geography' }, { classKey: '41', subject: 'geography' }, { classKey: '42', subject: 'geography' }] },
+            KHU07: { name: "ອາຈານຈາກ ຄວສ", homeroomClasses: [], subjectRoles: [{ classKey: '11', subject: 'ict' }, { classKey: '12', subject: 'ict' }, { classKey: '21', subject: 'ict' }, { classKey: '22', subject: 'ict' }, { classKey: '31', subject: 'ict' }, { classKey: '32', subject: 'ict' }, { classKey: '41', subject: 'ict' }, { classKey: '42', subject: 'ict' }, { classKey: '51', subject: 'ict' }, { classKey: '52', subject: 'ict' }, { classKey: '61', subject: 'ict' }, { classKey: '62', subject: 'ict' }, { classKey: '71', subject: 'ict' }, { classKey: '72', subject: 'ict' }] },
+            KHU08: { name: "IH-Vientiane", homeroomClasses: [], subjectRoles: [{ classKey: '11', subject: 'english' }, { classKey: '12', subject: 'english' }, { classKey: '21', subject: 'english' }, { classKey: '22', subject: 'english' }, { classKey: '31', subject: 'english' }, { classKey: '32', subject: 'english' }, { classKey: '41', subject: 'english' }, { classKey: '42', subject: 'english' }, { classKey: '51', subject: 'english' }, { classKey: '52', subject: 'english' }, { classKey: '61', subject: 'english' }, { classKey: '62', subject: 'english' }, { classKey: '71', subject: 'english' }, { classKey: '72', subject: 'english' }] },
+            KHU09: { name: "ອາຈານ ວິໄລສຸກ ໄຂຍະວົງ", homeroomClasses: [], subjectRoles: [{ classKey: '11', subject: 'pe' }, { classKey: '12', subject: 'pe' }, { classKey: '21', subject: 'pe' }, { classKey: '22', subject: 'pe' }, { classKey: '31', subject: 'pe' }, { classKey: '32', subject: 'pe' }, { classKey: '41', subject: 'pe' }, { classKey: '42', subject: 'pe' }, { classKey: '51', subject: 'pe' }, { classKey: '52', subject: 'pe' }, { classKey: '61', subject: 'pe' }, { classKey: '62', subject: 'pe' }, { classKey: '71', subject: 'pe' }, { classKey: '72', subject: 'pe' }] },
+            KHU10: { name: "ອາຈານ ນົກ ແພງສົມບັດ", homeroomClasses: ['31'], subjectRoles: [{ classKey: '31', subject: 'lao' }, { classKey: '32', subject: 'lao' }, { classKey: '41', subject: 'lao' }, { classKey: '42', subject: 'lao' }] },
+            KHU11: { name: "ອາຈານ ພຸດສະດີ ວົງພັກດີ", homeroomClasses: ['42'], subjectRoles: [{ classKey: '21', subject: 'physics' }, { classKey: '22', subject: 'physics' }, { classKey: '51', subject: 'physics' }, { classKey: '52', subject: 'physics' }] },
+            KHU12: { name: "ອາຈານ ຄໍາຄ່ອງ ລາດສະວົງ", homeroomClasses: ['41'], subjectRoles: [{ classKey: '21', subject: 'chemistry' }, { classKey: '22', subject: 'chemistry' }, { classKey: '31', subject: 'chemistry' }, { classKey: '32', subject: 'chemistry' }, { classKey: '41', subject: 'chemistry' }, { classKey: '42', subject: 'chemistry' }] },
+            KHU13: { name: "ອາຈານ ບຸນປອນ ເພຍໄຊຍະວົງ", homeroomClasses: ['62'], subjectRoles: [{ classKey: '21', subject: 'biology' }, { classKey: '22', subject: 'biology' }, { classKey: '51', subject: 'biology' }, { classKey: '52', subject: 'biology' }, { classKey: '61', subject: 'biology' }, { classKey: '62', subject: 'biology' }, { classKey: '71', subject: 'biology' }, { classKey: '72', subject: 'biology' }] },
+            KHU14: { name: "ອາຈານ ທອງທິບ ແກ້ວອຸດົມ", isAdmin: true, homeroomClasses: ['11', '12', '21', '22', '31', '32', '41', '42', '51', '52', '61', '62', '71', '72'], subjectRoles: [{ classKey: '22', subject: 'math' }, { classKey: '71', subject: 'math' }, { classKey: '72', subject: 'math' }] },
+            KHU15: { name: "ອາຈານ ສຸນີ ແກ້ວດວງດີ", homeroomClasses: ['32'], subjectRoles: [{ classKey: '31', subject: 'physics' }, { classKey: '32', subject: 'physics' }, { classKey: '41', subject: 'physics' }, { classKey: '42', subject: 'physics' }] },
+            KHU16: { name: "ອາຈານ ໄຈ ຮຸ່ງນະຄອນ", homeroomClasses: [], subjectRoles: [{ classKey: '31', subject: 'math' }, { classKey: '32', subject: 'math' }, { classKey: '41', subject: 'math' }, { classKey: '42', subject: 'math' }] },
+            KHU17: { name: "ອາຈານ ຕິມ ເພັດບົວທອນ", homeroomClasses: ['72'], subjectRoles: [{ classKey: '51', subject: 'lao' }, { classKey: '52', subject: 'lao' }, { classKey: '71', subject: 'lao' }, { classKey: '72', subject: 'lao' }] },
+            KHU18: { name: "ອາຈານ ຄຳສວນ ທອງມະນີວົງ", homeroomClasses: [], subjectRoles: [{ classKey: '41', subject: 'civics' }, { classKey: '42', subject: 'civics' }, { classKey: '71', subject: 'civics' }, { classKey: '72', subject: 'civics' }] },
+            KHU19: { name: "ອາຈານ ສີສຸດາ ໄຊໝື່ນວົງ", homeroomClasses: ['51'], subjectRoles: [{ classKey: '51', subject: 'chemistry' }, { classKey: '52', subject: 'chemistry' }, { classKey: '61', subject: 'chemistry' }, { classKey: '62', subject: 'chemistry' }, { classKey: '71', subject: 'chemistry' }, { classKey: '72', subject: 'chemistry' }] },
+            KHU20: { name: "ອາຈານ ພອນສະຫວັນ ວິໄລທອງ", homeroomClasses: ['52'], subjectRoles: [{ classKey: '51', subject: 'geography' }, { classKey: '52', subject: 'geography' }, { classKey: '61', subject: 'geography' }, { classKey: '62', subject: 'geography' }, { classKey: '71', subject: 'geography' }, { classKey: '72', subject: 'geography' }] },
+            KHU21: { name: "ອາຈານ ແສງພະຈັນ ສີວິໄລ", homeroomClasses: ['71'], subjectRoles: [{ classKey: '51', subject: 'history' }, { classKey: '52', subject: 'history' }, { classKey: '61', subject: 'history' }, { classKey: '62', subject: 'history' }, { classKey: '71', subject: 'history' }, { classKey: '72', subject: 'history' }] },
+            KHU22: { name: "ອາຈານ ຄໍາສະຫວາດ ຫຸມພາວົງ", homeroomClasses: ['61'], subjectRoles: [{ classKey: '51', subject: 'math' }, { classKey: '52', subject: 'math' }, { classKey: '61', subject: 'math' }, { classKey: '62', subject: 'math' }] },
+            KHU23: { name: "ອາຈານ ຈັນທະພອນ ກ່ຳພຸດທະສັກ", homeroomClasses: ['22'], subjectRoles: [{ classKey: '21', subject: 'lao' }, { classKey: '22', subject: 'lao' }, { classKey: '61', subject: 'lao' }, { classKey: '62', subject: 'lao' }] },
+            KHU24: { name: "ອາຈານ ເວດທະວີໄຊ ແຜງວີໄຊ", homeroomClasses: [], subjectRoles: [{ classKey: '61', subject: 'physics' }, { classKey: '62', subject: 'physics' }, { classKey: '71', subject: 'physics' }, { classKey: '72', subject: 'physics' }] },
+            KHU25: { name: "Japan", homeroomClasses: [], subjectRoles: [{ classKey: '11', subject: 'japanese' }, { classKey: '12', subject: 'japanese' }, { classKey: '21', subject: 'japanese' }, { classKey: '22', subject: 'japanese' }, { classKey: '31', subject: 'japanese' }, { classKey: '32', subject: 'japanese' }, { classKey: '41', subject: 'japanese' }, { classKey: '42', subject: 'japanese' }, { classKey: '51', subject: 'japanese' }, { classKey: '52', subject: 'japanese' }, { classKey: '61', subject: 'japanese' }, { classKey: '62', subject: 'japanese' }, { classKey: '71', subject: 'japanese' }, { classKey: '72', subject: 'japanese' }] },
         };
 
         // Struct: { [subject]: { [studentId]: { [period]: { class: '', exam: '' } } } }
@@ -2598,66 +2615,125 @@
         let currentReportCardStudent = null;
 
         // Authentication controllers
+        // Set right before a sign-in from the login form, so the onAuthStateChanged
+        // handler (see initializeSystem) can tell a fresh login (toast, start at the
+        // dashboard) from a session Firebase restored on page load.
+        let interactiveLoginPending = false;
+
+        function showLoginError(message) {
+            document.getElementById('login-error-text').innerText = message;
+            document.getElementById('login-error').classList.remove('hidden');
+        }
+
+        function loginErrorMessage(err) {
+            const code = err && err.code;
+            if (code === 'auth/too-many-requests') return 'ລອງເຂົ້າລະບົບຜິດຫຼາຍເທື່ອເກີນໄປ, ກະລຸນາລໍຖ້າບໍ່ດົນແລ້ວລອງໃໝ່.';
+            if (code === 'auth/network-request-failed') return 'ເຊື່ອມຕໍ່ອິນເຕີເນັດບໍ່ໄດ້, ກະລຸນາກວດສອບແລ້ວລອງໃໝ່.';
+            if (code === 'auth/user-disabled') return 'ບັນຊີນີ້ຖືກປິດການໃຊ້ງານ, ກະລຸນາຕິດຕໍ່ admin.';
+            if (code === 'auth/operation-not-allowed') return 'ຍັງບໍ່ໄດ້ເປີດ Email/Password ໃນ Firebase Authentication, ກະລຸນາແຈ້ງ admin.';
+            return 'ລະຫັດ ຫຼື ລະຫັດຜ່ານບໍ່ຖືກຕ້ອງ, ກະລຸນາກວດສອບຄືນໃໝ່!';
+        }
+
+        // The password is checked by Firebase Authentication, not in the browser. On
+        // success, onAuthStateChanged (initializeSystem) takes the teacher to their dashboard.
         function handleLogin(event) {
             event.preventDefault();
             const codeInput = document.getElementById('login-code').value.trim().toUpperCase();
             const passInput = document.getElementById('login-password').value;
-            const errorAlert = document.getElementById('login-error');
+            const submitBtn = event.target.querySelector('button[type="submit"]');
 
-            const account = teacherAccounts[codeInput];
-            const activePassword = account ? (teacherPasswordOverrides[codeInput] || account.password) : null;
-
-            if (account && passInput === activePassword) {
-                errorAlert.classList.add('hidden');
-                currentTeacherAccount = Object.assign({ code: codeInput }, account);
-                currentUserRole = null;
-
-                // Keep session alive (this tab/session only)
-                sessionStorage.setItem('gradebook_active_account', codeInput);
-                sessionStorage.removeItem('gradebook_active_role');
-                // "Remember me": persists across browser restarts too, for every teacher --
-                // see initializeSystem() for how this is consumed on the next fresh visit.
-                localStorage.setItem('gradebook_remembered_account', codeInput);
-
-                document.getElementById('login-code').value = '';
-                document.getElementById('login-password').value = '';
-                document.getElementById('view-login').classList.add('hidden');
-                document.getElementById('firebase-loading-overlay').classList.add('hidden');
-                renderTeacherHome();
-                document.getElementById('view-teacher-home').classList.remove('hidden');
-                showToast("🔓 ເຂົ້າສູ່ລະບົບສຳເລັດແລ້ວ!", "text-emerald-400");
-            } else {
-                errorAlert.classList.remove('hidden');
+            if (!teacherAccounts[codeInput]) {
+                showLoginError(loginErrorMessage(null));
                 showToast("❌ ລະຫັດ ຫຼື ລະຫັດຜ່ານບໍ່ຖືກຕ້ອງ!", "text-red-400");
+                return;
             }
+
+            document.getElementById('login-error').classList.add('hidden');
+            submitBtn.disabled = true;
+            interactiveLoginPending = true;
+            auth.signInWithEmailAndPassword(teacherCodeToEmail(codeInput), toFirebasePassword(passInput))
+                .then(() => {
+                    document.getElementById('login-code').value = '';
+                    document.getElementById('login-password').value = '';
+                })
+                .catch(err => {
+                    interactiveLoginPending = false;
+                    console.error('Sign-in failed:', err);
+                    showLoginError(loginErrorMessage(err));
+                    showToast("❌ ເຂົ້າສູ່ລະບົບບໍ່ສຳເລັດ!", "text-red-400");
+                })
+                .finally(() => { submitBtn.disabled = false; });
+        }
+
+        // Puts the teacher on the dashboard (or back into the class/subject they had open
+        // in this tab) once Firebase Auth has a signed-in user for them.
+        function enterSignedInSession(code, wasInteractive) {
+            currentTeacherAccount = Object.assign({ code }, teacherAccounts[code]);
+            currentUserRole = null;
+            document.getElementById('view-login').classList.add('hidden');
+
+            let cachedRole = null;
+            try { cachedRole = JSON.parse(sessionStorage.getItem('gradebook_active_role')); } catch (e) { cachedRole = null; }
+            if (!wasInteractive && cachedRole && accountAllowsRole(currentTeacherAccount, cachedRole)) {
+                // Page refresh inside a specific class/subject: go straight back in
+                currentUserRole = cachedRole;
+                document.getElementById('app-navbar').classList.remove('hidden');
+                updateNavbarAndPrivileges();
+                applyClassBranding();
+                navigateTo('home');
+                attachClassDataListeners(currentUserRole.classKey);
+                return;
+            }
+
+            sessionStorage.removeItem('gradebook_active_role');
+            document.getElementById('firebase-loading-overlay').classList.add('hidden');
+            renderTeacherHome();
+            document.getElementById('view-teacher-home').classList.remove('hidden');
+            if (wasInteractive) showToast("🔓 ເຂົ້າສູ່ລະບົບສຳເລັດແລ້ວ!", "text-emerald-400");
+        }
+
+        // A role restored from sessionStorage is only trusted if this account really has
+        // it (the database rules enforce this anyway; this just avoids a permission error).
+        function accountAllowsRole(account, role) {
+            if (!account || !role) return false;
+            if (role.type === 'homeroom') return account.homeroomClasses.includes(role.classKey);
+            if (role.type === 'subject') return account.subjectRoles.some(r => r.classKey === role.classKey && r.subject === role.subject);
+            return false;
+        }
+
+        // Clears every trace of the session from the screen and memory. Safe to call more
+        // than once (handleLogout calls it, then onAuthStateChanged(null) may again).
+        function showLoggedOutScreen() {
+            sessionStorage.removeItem('gradebook_active_role');
+            currentUserRole = null;
+            currentTeacherAccount = null;
+            detachClassDataListeners();
+
+            // Clean interface
+            document.getElementById('app-navbar').classList.add('hidden');
+            document.getElementById('view-teacher-home').classList.add('hidden');
+            document.getElementById('view-home').classList.add('hidden');
+            document.getElementById('view-monthly-overview').classList.add('hidden');
+            document.getElementById('view-subject-entry').classList.add('hidden');
+            document.getElementById('view-student-report-modal').classList.add('hidden');
+            document.getElementById('view-student-directory-modal').classList.add('hidden');
+            document.getElementById('view-change-password-modal').classList.add('hidden');
+
+            document.getElementById('login-code').value = '';
+            document.getElementById('view-login').classList.remove('hidden');
+            document.getElementById('firebase-loading-overlay').classList.add('hidden');
+            currentView = 'login';
         }
 
         function handleLogout() {
             // Make sure anything just typed is actually saved (and the teacher is told if it
             // isn't) before we tear down the session — see leaveGradeEntryScreen's comment.
             leaveGradeEntryScreen(() => {
-                sessionStorage.removeItem('gradebook_active_role');
-                sessionStorage.removeItem('gradebook_active_account');
-                localStorage.removeItem('gradebook_remembered_account');
-                currentUserRole = null;
-                currentTeacherAccount = null;
-                detachClassDataListeners();
-
-                // Clean interface
-                document.getElementById('app-navbar').classList.add('hidden');
-                document.getElementById('view-teacher-home').classList.add('hidden');
-                document.getElementById('view-home').classList.add('hidden');
-                document.getElementById('view-monthly-overview').classList.add('hidden');
-                document.getElementById('view-subject-entry').classList.add('hidden');
-                document.getElementById('view-student-report-modal').classList.add('hidden');
-                document.getElementById('view-student-directory-modal').classList.add('hidden');
-                document.getElementById('view-change-password-modal').classList.add('hidden');
-
-                document.getElementById('login-code').value = '';
-                document.getElementById('view-login').classList.remove('hidden');
-                document.getElementById('firebase-loading-overlay').classList.add('hidden');
-                currentView = 'login';
-                showToast("🔒 ອອກຈາກລະບົບຮຽບຮ້ອຍ!", "text-amber-400");
+                // Detach listeners BEFORE signing out, otherwise they'd fire permission errors.
+                showLoggedOutScreen();
+                auth.signOut()
+                    .then(() => showToast("🔒 ອອກຈາກລະບົບຮຽບຮ້ອຍ!", "text-amber-400"))
+                    .catch(err => console.error('Sign-out failed:', err));
             });
         }
 
@@ -2734,24 +2810,20 @@
             }
         }
 
-        // isAdmin-only: lists every login code in teacherAccounts order, with its name and
-        // its CURRENT effective password — the Firebase override in teacherPasswordOverrides
-        // if that teacher has ever used "ປ່ຽນລະຫັດຜ່ານ", otherwise the hardcoded default from
-        // teacherAccounts. teacherPasswordOverrides is kept live-synced from Firebase from
-        // app init (see the db.ref('teacherPasswords').on('value', ...) listener near the top)
-        // regardless of which account is logged in, so this is always up to date without a
-        // dedicated fetch. Read-only: this view does not change anyone's password.
+        // isAdmin-only: lists every login code in teacherAccounts order with its name and
+        // the Firebase Authentication email it signs in as. Passwords are not shown: they
+        // live only in Firebase Authentication, which never reveals them. A forgotten
+        // password is reset with `node firebase/setup-teachers.mjs --reset KHUxx`.
         function renderAdminTeacherAccountsSection() {
             const tbody = document.getElementById('admin-teacher-accounts-tbody');
             if (!tbody) return;
             tbody.innerHTML = Object.keys(teacherAccounts).map(code => {
                 const acc = teacherAccounts[code];
-                const currentPassword = teacherPasswordOverrides[code] || acc.password;
                 return `
                     <tr class="border-b border-slate-100 last:border-0">
                         <td class="py-2 pr-4 font-mono font-semibold text-slate-700">${code}</td>
                         <td class="py-2 pr-4 text-slate-600">${acc.name}</td>
-                        <td class="py-2 pr-4 font-mono text-slate-800">${currentPassword}</td>
+                        <td class="py-2 pr-4 font-mono text-slate-500 text-xs">${teacherCodeToEmail(code)}</td>
                     </tr>
                 `;
             }).join('');
@@ -3471,24 +3543,44 @@
         }
         function handleChangePassword(event) {
             event.preventDefault();
-            if (!currentTeacherAccount) return;
+            const user = auth.currentUser;
+            if (!currentTeacherAccount || !user) return;
             const oldPass = document.getElementById('change-password-old').value;
             const newPass = document.getElementById('change-password-new').value;
             const errorBox = document.getElementById('change-password-error');
-            const code = currentTeacherAccount.code;
-            const activePassword = teacherPasswordOverrides[code] || teacherAccounts[code].password;
-
-            if (oldPass !== activePassword) {
-                errorBox.innerText = 'ລະຫັດຜ່ານເກົ່າບໍ່ຖືກຕ້ອງ!';
+            const submitBtn = event.target.querySelector('button[type="submit"]');
+            const showError = msg => {
+                errorBox.innerText = msg;
                 errorBox.classList.remove('hidden');
+            };
+
+            if (newPass.length < 6) {
+                showError('ລະຫັດຜ່ານໃໝ່ຕ້ອງມີຢ່າງໜ້ອຍ 6 ຕົວອັກສອນ!');
                 return;
             }
-            teacherPasswordOverrides[code] = newPass;
-            currentTeacherAccount.password = newPass;
-            db.ref('teacherPasswords/' + code).set(newPass)
-                .catch(err => console.error('Password sync failed:', err));
-            closeChangePasswordModal();
-            showToast("🔑 ປ່ຽນລະຫັດຜ່ານສຳເລັດແລ້ວ!", "text-emerald-400");
+            errorBox.classList.add('hidden');
+            submitBtn.disabled = true;
+            // Firebase requires a recent sign-in to change the password, so re-check the old one.
+            const credential = firebase.auth.EmailAuthProvider.credential(user.email, toFirebasePassword(oldPass));
+            user.reauthenticateWithCredential(credential)
+                .then(() => user.updatePassword(newPass))
+                .then(() => {
+                    closeChangePasswordModal();
+                    showToast("🔑 ປ່ຽນລະຫັດຜ່ານສຳເລັດແລ້ວ!", "text-emerald-400");
+                })
+                .catch(err => {
+                    console.error('Password change failed:', err);
+                    if (err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential' || err.code === 'auth/invalid-login-credentials') {
+                        showError('ລະຫັດຜ່ານເກົ່າບໍ່ຖືກຕ້ອງ!');
+                    } else if (err.code === 'auth/weak-password') {
+                        showError('ລະຫັດຜ່ານໃໝ່ງ່າຍເກີນໄປ, ກະລຸນາໃຊ້ຢ່າງໜ້ອຍ 6 ຕົວອັກສອນ!');
+                    } else if (err.code === 'auth/too-many-requests') {
+                        showError('ລອງຫຼາຍເທື່ອເກີນໄປ, ກະລຸນາລໍຖ້າບໍ່ດົນແລ້ວລອງໃໝ່.');
+                    } else {
+                        showError('ປ່ຽນລະຫັດຜ່ານບໍ່ສຳເລັດ: ' + (err.message || err));
+                    }
+                })
+                .finally(() => { submitBtn.disabled = false; });
         }
 
         // Keeps the 12 static "ປ້ອນຄະແນນແຍກຕາມວິຊາ" cards in sync with the currently
@@ -4218,43 +4310,31 @@
         }
 
         function initializeSystem() {
-            // Restore session first so the UI is ready the instant data arrives
-            const cachedAccountCode = sessionStorage.getItem('gradebook_active_account');
-            const cachedRole = sessionStorage.getItem('gradebook_active_role');
-            // "Remember me" (every teacher): localStorage survives closing the browser
-            // entirely, unlike the sessionStorage pair above which only lasts this tab/
-            // session. Only consulted when sessionStorage has nothing at all -- i.e. a
-            // genuinely fresh visit -- so a same-session page refresh still resumes
-            // exactly where the teacher was via the cachedRole branch below, unchanged.
-            const rememberedAccountCode = localStorage.getItem('gradebook_remembered_account');
-
-            if (cachedAccountCode && teacherAccounts[cachedAccountCode]) {
-                currentTeacherAccount = Object.assign({ code: cachedAccountCode }, teacherAccounts[cachedAccountCode]);
-            } else if (rememberedAccountCode && teacherAccounts[rememberedAccountCode]) {
-                currentTeacherAccount = Object.assign({ code: rememberedAccountCode }, teacherAccounts[rememberedAccountCode]);
-                sessionStorage.setItem('gradebook_active_account', rememberedAccountCode);
-            }
-
-            if (currentTeacherAccount && cachedRole) {
-                // Was inside a specific class/subject — go straight back in
-                currentUserRole = JSON.parse(cachedRole);
-                document.getElementById('view-login').classList.add('hidden');
-                document.getElementById('app-navbar').classList.remove('hidden');
-                updateNavbarAndPrivileges();
-                applyClassBranding();
-                navigateTo('home');
-                attachClassDataListeners(currentUserRole.classKey);
-            } else if (currentTeacherAccount) {
-                // Logged in but hadn't picked a class/subject yet — back to the dashboard
-                document.getElementById('view-login').classList.add('hidden');
-                document.getElementById('firebase-loading-overlay').classList.add('hidden');
-                renderTeacherHome();
-                document.getElementById('view-teacher-home').classList.remove('hidden');
-            } else {
-                // Nothing to load before login — no need for the connecting spinner yet
-                document.getElementById('firebase-loading-overlay').classList.add('hidden');
-                navigateTo('login');
-            }
+            // Firebase Auth keeps the teacher signed in on this device across browser
+            // restarts (replaces the old localStorage "remember me"). The connecting overlay
+            // stays up until it reports whether someone is already signed in.
+            auth.onAuthStateChanged(user => {
+                const wasInteractive = interactiveLoginPending;
+                interactiveLoginPending = false;
+                if (!user) {
+                    if (currentTeacherAccount) showLoggedOutScreen(); // e.g. account disabled elsewhere
+                    else {
+                        document.getElementById('firebase-loading-overlay').classList.add('hidden');
+                        navigateTo('login');
+                    }
+                    return;
+                }
+                const code = teacherCodeFromUser(user);
+                if (!teacherAccounts[code]) {
+                    // Authenticated, but not a teacher this app knows about.
+                    auth.signOut();
+                    showLoggedOutScreen();
+                    showLoginError('ບັນຊີນີ້ບໍ່ມີໃນລາຍຊື່ຄູ, ກະລຸນາຕິດຕໍ່ admin.');
+                    return;
+                }
+                if (currentTeacherAccount && currentTeacherAccount.code === code) return; // already in
+                enterSignedInSession(code, wasInteractive);
+            });
         }
 
         // One-time migration: the very first version of this app (before multi-class
@@ -4309,6 +4389,10 @@
             behaviorRef = db.ref(`classes/${classKey}/behavior`);
             reportDatesRef = db.ref(`classes/${classKey}/reportDates`);
 
+            // Subject teachers may only read the roster, report dates and THEIR subject's
+            // grades (database.rules.json), so listen to exactly that; homeroom gets it all.
+            const subjectOnly = currentUserRole && currentUserRole.type === 'subject' ? currentUserRole.subject : null;
+
             function startListening() {
                 studentsRef.on('value', snapshot => {
                     const data = snapshot.val();
@@ -4316,9 +4400,10 @@
                         students = Array.isArray(data) ? data.filter(Boolean) : Object.values(data);
                         students.sort((a, b) => a.id - b.id);
                     } else if (!dataLoadedFlags.students && defaultRostersByClass[classKey]) {
-                        // First-ever run for a class with a known roster: seed it
+                        // First-ever run for a class with a known roster: seed it (only the
+                        // homeroom teacher may write the roster; others just see the default)
                         students = defaultRostersByClass[classKey];
-                        studentsRef.set(students);
+                        if (!subjectOnly) studentsRef.set(students).catch(err => console.error('Student seed failed:', err));
                     } else {
                         // Brand-new class with no roster yet — homeroom teacher adds students later
                         students = [];
@@ -4330,19 +4415,26 @@
                     refreshCurrentView(true);
                 }, showDbConnectionError);
 
-                gradesRef.on('value', snapshot => {
-                    grades = gradesFromFirebase(snapshot.val());
+                gradesListenRef = subjectOnly ? gradesRef.child(subjectOnly) : gradesRef;
+                gradesListenRef.on('value', snapshot => {
+                    grades = gradesFromFirebase(subjectOnly ? { [subjectOnly]: snapshot.val() } : snapshot.val());
                     Object.keys(subjects).forEach(sub => verifySubjectGrades(sub));
                     markLoaded('grades');
                     // Don't blow away a teacher's in-progress typing in the grade table
                     refreshCurrentView(!isFocusInside('student-table-body'));
                 }, showDbConnectionError);
 
-                behaviorRef.on('value', snapshot => {
-                    studentBehaviorMetadata = idKeysFromFirebase(snapshot.val()) || {};
+                if (subjectOnly) {
+                    // Conduct/behavior belongs to the homeroom teacher only.
+                    studentBehaviorMetadata = {};
                     markLoaded('behavior');
-                    refreshCurrentView(!isFocusInside('monthly-report-body'));
-                }, showDbConnectionError);
+                } else {
+                    behaviorRef.on('value', snapshot => {
+                        studentBehaviorMetadata = idKeysFromFirebase(snapshot.val()) || {};
+                        markLoaded('behavior');
+                        refreshCurrentView(!isFocusInside('monthly-report-body'));
+                    }, showDbConnectionError);
+                }
 
                 reportDatesRef.on('value', snapshot => {
                     monthlyReportDates = snapshot.val() || {};
@@ -4355,7 +4447,7 @@
                 }, showDbConnectionError);
             }
 
-            if (classKey === '51') {
+            if (classKey === '51' && !subjectOnly) {
                 migrateLegacyM51DataIfNeeded(startListening);
             } else {
                 startListening();
@@ -4372,11 +4464,12 @@
             flushAllPendingGradesSaves();
             flushTeacherCommentSave();
             if (studentsRef) studentsRef.off();
-            if (gradesRef) gradesRef.off();
+            if (gradesListenRef) gradesListenRef.off();
             if (behaviorRef) behaviorRef.off();
             if (reportDatesRef) reportDatesRef.off();
             studentsRef = null;
             gradesRef = null;
+            gradesListenRef = null;
             behaviorRef = null;
             reportDatesRef = null;
             currentClassKey = null;
