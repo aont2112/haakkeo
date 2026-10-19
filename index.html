@@ -1851,6 +1851,14 @@
         function teacherCodeToEmail(code) {
             return `${code.toLowerCase()}@${TEACHER_EMAIL_DOMAIN}`;
         }
+        // Firebase Auth rejects passwords under 6 characters, but teachers kept their
+        // existing 4-digit passwords when accounts moved to Firebase. Short passwords get
+        // this fixed suffix before being sent to Firebase, so teachers type them unchanged.
+        // Must match SHORT_PASSWORD_SUFFIX in firebase/setup-teachers.mjs.
+        const SHORT_PASSWORD_SUFFIX = '#haakkeo';
+        function toFirebasePassword(password) {
+            return password.length >= 6 ? password : password + SHORT_PASSWORD_SUFFIX;
+        }
         function teacherCodeFromUser(user) {
             if (!user || !user.email) return null;
             return user.email.split('@')[0].toUpperCase();
@@ -2643,7 +2651,7 @@
             document.getElementById('login-error').classList.add('hidden');
             submitBtn.disabled = true;
             interactiveLoginPending = true;
-            auth.signInWithEmailAndPassword(teacherCodeToEmail(codeInput), passInput)
+            auth.signInWithEmailAndPassword(teacherCodeToEmail(codeInput), toFirebasePassword(passInput))
                 .then(() => {
                     document.getElementById('login-code').value = '';
                     document.getElementById('login-password').value = '';
@@ -3553,7 +3561,7 @@
             errorBox.classList.add('hidden');
             submitBtn.disabled = true;
             // Firebase requires a recent sign-in to change the password, so re-check the old one.
-            const credential = firebase.auth.EmailAuthProvider.credential(user.email, oldPass);
+            const credential = firebase.auth.EmailAuthProvider.credential(user.email, toFirebasePassword(oldPass));
             user.reauthenticateWithCredential(credential)
                 .then(() => user.updatePassword(newPass))
                 .then(() => {

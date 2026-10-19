@@ -9,8 +9,12 @@
 //   node setup-teachers.mjs --reset KHU03 KHU07 # also issue new passwords for these
 //   node setup-teachers.mjs --reset-all         # new passwords for everyone
 //
-// New passwords are written to firebase/initial-passwords.csv (git-ignored) for the
-// admin to hand out. Existing accounts keep their password unless reset.
+// Teachers KEEP THEIR CURRENT PASSWORD when their account is first created: the one they
+// set with "ປ່ຽນລະຫັດຜ່ານ" (read from the old /teacherPasswords node), otherwise the
+// original default (KHU01 -> 1001 ... KHU25 -> 1025). They can change it later in the app.
+// Only passwords the script makes up (--reset, or a teacher added after KHU25) are written
+// to firebase/initial-passwords.csv (git-ignored) for the admin to hand out. Existing
+// accounts keep their password unless reset.
 //
 // Needs firebase/service-account.json (Firebase Console > Project settings >
 // Service accounts > Generate new private key). Never commit that file.
@@ -29,6 +33,21 @@ const DATABASE_URL = 'https://haakkeo-m51-grades-default-rtdb.asia-southeast1.fi
 const TEACHER_EMAIL_DOMAIN = 'haakkeo-m51-grades.firebaseapp.com';
 // Academic-affairs viewer with read-only access to every class (see isAcademicOverseer()).
 const OVERSEER_CODES = ['KHU24'];
+
+// Must match SHORT_PASSWORD_SUFFIX / toFirebasePassword() in index.html. Firebase Auth
+// rejects passwords under 6 characters, but teachers' existing passwords are 4 digits;
+// the app silently appends this suffix to short passwords so they keep working as typed.
+const SHORT_PASSWORD_SUFFIX = '#haakkeo';
+function toFirebasePassword(password) {
+    return password.length >= 6 ? password : password + SHORT_PASSWORD_SUFFIX;
+}
+
+// Default password of the accounts that existed before Firebase Authentication
+// (KHU01..KHU25 -> "10" + number). null for any teacher added later.
+function legacyDefaultPassword(code) {
+    const m = code.match(/^KHU(\d{2})$/);
+    return m && Number(m[1]) >= 1 && Number(m[1]) <= 25 ? '10' + m[1] : null;
+}
 
 function loadTeacherAccounts() {
     const html = readFileSync(path.join(here, '..', 'index.html'), 'utf8');
@@ -84,6 +103,8 @@ async function main() {
     const db = admin.database();
 
     const teacherAccounts = loadTeacherAccounts();
+    // Passwords teachers changed in the old app (plain text, keyed by code).
+    const changedPasswords = (await db.ref('teacherPasswords').get()).val() || {};
     const issued = [];
     const roles = {};
 
@@ -96,16 +117,23 @@ async function main() {
             if (err.code !== 'auth/user-not-found') throw err;
         }
 
+        const reset = resetAll || resetCodes.has(code);
         if (!user) {
-            const password = generatePassword();
-            await auth.createUser({ uid, email, password, displayName: account.name, emailVerified: true });
-            issued.push([code, account.name, password]);
-            console.log(`created  ${code}`);
+            const current = changedPasswords[code] || legacyDefaultPassword(code);
+            const password = (!reset && current) ? current : generatePassword();
+            await auth.createUser({ uid, email, password: toFirebasePassword(password), displayName: account.name, emailVerified: true });
+            if (password === current) {
+                console.log(`created  ${code} (kept ${changedPasswords[code] ? 'their changed' : 'default'} password)`);
+            } else {
+                issued.push([code, account.name, password]);
+                console.log(`created  ${code} (new password)`);
+            }
         } else {
             const update = { email, displayName: account.name };
-            if (resetAll || resetCodes.has(code)) {
-                update.password = generatePassword();
-                issued.push([code, account.name, update.password]);
+            if (reset) {
+                const password = generatePassword();
+                update.password = toFirebasePassword(password);
+                issued.push([code, account.name, password]);
                 console.log(`reset    ${code}`);
             } else {
                 console.log(`exists   ${code}`);
@@ -119,7 +147,8 @@ async function main() {
     await db.ref('teacherRoles').set(roles);
     console.log(`\n/teacherRoles written for ${Object.keys(roles).length} teachers.`);
 
-    // Old browser-side login stored plain-text passwords here; no longer used.
+    // Old browser-side login stored plain-text passwords here. They now live (hashed) in
+    // Firebase Authentication, so the plain-text copy is deleted.
     await db.ref('teacherPasswords').remove();
 
     if (issued.length) {
