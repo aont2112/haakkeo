@@ -1303,6 +1303,10 @@
                         <i class="fa-solid fa-image"></i>
                         <span>ດາວໂຫຼດເປັນຮູບພາບ</span>
                     </button>
+                    <button onclick="downloadReportCardAsPdf()" id="download-report-pdf-btn" class="bg-rose-600 hover:bg-rose-700 text-white font-semibold text-xs px-4 py-2 rounded-xl transition shadow flex items-center gap-1.5">
+                        <i class="fa-solid fa-file-pdf"></i>
+                        <span>ດາວໂຫຼດເປັນ PDF</span>
+                    </button>
                     <button id="report-card-close-btn" onclick="closeStudentModal()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 font-medium text-xs px-3 py-2 rounded-xl transition">
                         <i class="fa-solid fa-xmark mr-1"></i> ປິດໜ້າຕ່າງ
                     </button>
@@ -5987,6 +5991,7 @@
                 // Attach real-time saver for teacher's commentary box (debounced to avoid a network write per keystroke)
                 let commentSaveTimer = null;
                 commentArea.oninput = (e) => {
+                    autoGrowTextarea(e.target);
                     if (selectedPeriod === 'year') {
                         // The year view's behavior object is a computed summary, not a
                         // live reference into studentBehaviorMetadata — save the year-end
@@ -6022,6 +6027,8 @@
 
             // Show student viewer modal container
             document.getElementById('view-student-report-modal').classList.remove('hidden');
+            // Sized only now that the modal is visible -- a hidden textarea has no scrollHeight.
+            autoGrowTextarea(commentArea);
             fitPrintAreaToViewport();
         }
 
@@ -6091,14 +6098,30 @@
             document.getElementById('view-student-report-modal').classList.add('hidden');
         }
 
-        // Export the printable report card area as a PNG image the teacher can save/share
-        function downloadReportCardAsImage() {
-            const cardEl = document.getElementById('print-area-container');
-            if (!cardEl) return;
+        // Grows a textarea to fit its full text so a long (multi-line) comment is never
+        // cut off behind a scrollbar on screen.
+        function autoGrowTextarea(el) {
+            if (!el) return;
+            el.style.height = 'auto';
+            el.style.height = el.scrollHeight + 'px';
+        }
 
-            const btn = document.getElementById('download-report-image-btn');
+        function reportCardFileBase() {
+            const studentName = currentReportCardStudent ? currentReportCardStudent.name.trim() : 'ນັກຮຽນ';
+            const periodTitle = document.getElementById('card-report-title').innerText.replace(/\s+/g, '');
+            return `ໃບຄະແນນ_${studentName}_${periodTitle}`;
+        }
+
+        // Rasterizes the printable report card. html2canvas draws a <textarea> as a single
+        // clipped line, so a long teacher comment lost everything after its first row in the
+        // exported file -- in the cloned document it's swapped for a plain wrapping <div>
+        // holding the full text instead.
+        function captureReportCard(btn, busyLabel) {
+            const cardEl = document.getElementById('print-area-container');
+            if (!cardEl) return Promise.reject(new Error('no report card'));
+
             const originalBtnHtml = btn.innerHTML;
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i><span>ກຳລັງສ້າງຮູບພາບ...</span>';
+            btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i><span>${busyLabel}</span>`;
             btn.disabled = true;
 
             // On a narrow phone screen the card may currently be visually shrunk to fit
@@ -6107,17 +6130,37 @@
             const prevTransform = cardEl.style.transform;
             cardEl.style.transform = 'none';
 
-            html2canvas(cardEl, {
+            return html2canvas(cardEl, {
                 scale: 2, // Higher resolution for a crisp, printable image
                 useCORS: true,
-                backgroundColor: '#ffffff'
-            }).then(canvas => {
-                const studentName = currentReportCardStudent ? currentReportCardStudent.name.trim() : 'ນັກຮຽນ';
-                const periodTitle = document.getElementById('card-report-title').innerText.replace(/\s+/g, '');
-                const fileName = `ໃບຄະແນນ_${studentName}_${periodTitle}.png`;
+                backgroundColor: '#ffffff',
+                onclone: (doc) => {
+                    doc.querySelectorAll('#print-area-container textarea').forEach(ta => {
+                        const div = doc.createElement('div');
+                        div.className = ta.className;
+                        div.textContent = ta.value;
+                        div.style.whiteSpace = 'pre-wrap';
+                        div.style.wordBreak = 'break-word';
+                        div.style.height = 'auto';
+                        ta.parentNode.replaceChild(div, ta);
+                    });
+                    const badge = doc.getElementById('card-comment-editable-badge');
+                    if (badge) badge.remove();
+                }
+            }).finally(() => {
+                btn.innerHTML = originalBtnHtml;
+                btn.disabled = false;
+                cardEl.style.transform = prevTransform;
+                fitPrintAreaToViewport();
+            });
+        }
 
+        // Export the printable report card area as a PNG image the teacher can save/share
+        function downloadReportCardAsImage() {
+            const btn = document.getElementById('download-report-image-btn');
+            captureReportCard(btn, 'ກຳລັງສ້າງຮູບພາບ...').then(canvas => {
                 const link = document.createElement('a');
-                link.download = fileName;
+                link.download = `${reportCardFileBase()}.png`;
                 link.href = canvas.toDataURL('image/png');
                 document.body.appendChild(link);
                 link.click();
@@ -6127,11 +6170,28 @@
             }).catch(err => {
                 console.error('Image export failed:', err);
                 showToast("❌ ສ້າງຮູບພາບບໍ່ສຳເລັດ, ກະລຸນາລອງໃໝ່!", "text-red-400");
-            }).finally(() => {
-                btn.innerHTML = originalBtnHtml;
-                btn.disabled = false;
-                cardEl.style.transform = prevTransform;
-                fitPrintAreaToViewport();
+            });
+        }
+
+        // Export the printable report card as a single A4 portrait PDF page (scaled to fit)
+        function downloadReportCardAsPdf() {
+            const btn = document.getElementById('download-report-pdf-btn');
+            captureReportCard(btn, 'ກຳລັງສ້າງ PDF...').then(canvas => {
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+                const pageW = pdf.internal.pageSize.getWidth();
+                const pageH = pdf.internal.pageSize.getHeight();
+                const margin = 8;
+                const fit = Math.min((pageW - margin * 2) / canvas.width, (pageH - margin * 2) / canvas.height);
+                const w = canvas.width * fit;
+                const h = canvas.height * fit;
+                pdf.addImage(canvas.toDataURL('image/png'), 'PNG', (pageW - w) / 2, margin, w, h);
+                pdf.save(`${reportCardFileBase()}.pdf`);
+
+                showToast("📄 ດາວໂຫຼດ PDF ໃບຄະແນນສຳເລັດແລ້ວ!", "text-emerald-400");
+            }).catch(err => {
+                console.error('PDF export failed:', err);
+                showToast("❌ ສ້າງ PDF ບໍ່ສຳເລັດ, ກະລຸນາລອງໃໝ່!", "text-red-400");
             });
         }
 
