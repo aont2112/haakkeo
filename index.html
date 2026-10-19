@@ -4370,6 +4370,7 @@
             // immediately logged out / went back to "ໜ້າຄູຂອງຂ້ອຍ" would lose that last
             // unsaved batch of scores.
             flushAllPendingGradesSaves();
+            flushTeacherCommentSave();
             if (studentsRef) studentsRef.off();
             if (gradesRef) gradesRef.off();
             if (behaviorRef) behaviorRef.off();
@@ -5988,28 +5989,19 @@
             if (isHomeroom) {
                 commentArea.disabled = false;
                 document.getElementById('card-comment-editable-badge').classList.remove('hidden');
-                // Attach real-time saver for teacher's commentary box (debounced to avoid a network write per keystroke)
-                let commentSaveTimer = null;
+                setTeacherCommentStatus('idle');
+                const period = selectedPeriod;
                 commentArea.oninput = (e) => {
                     autoGrowTextarea(e.target);
-                    if (selectedPeriod === 'year') {
-                        // The year view's behavior object is a computed summary, not a
-                        // live reference into studentBehaviorMetadata — save the year-end
-                        // comment to its own dedicated field instead.
-                        if (!studentBehaviorMetadata[studentId]) studentBehaviorMetadata[studentId] = {};
-                        studentBehaviorMetadata[studentId].yearComment = e.target.value;
-                    } else {
-                        behavior.comment = e.target.value;
-                    }
-                    if (commentSaveTimer) clearTimeout(commentSaveTimer);
-                    commentSaveTimer = setTimeout(() => {
-                        behaviorRef.set(idKeysToFirebase(studentBehaviorMetadata)).catch(err => console.error('Behavior sync failed:', err));
-                    }, 500);
+                    queueTeacherCommentSave(studentId, period, e.target.value);
                 };
+                // Leaving the box (tapping elsewhere, switching app on a phone) saves at once.
+                commentArea.onblur = flushTeacherCommentSave;
             } else {
                 commentArea.disabled = true;
                 document.getElementById('card-comment-editable-badge').classList.add('hidden');
                 commentArea.oninput = null;
+                commentArea.onblur = null;
             }
 
             // Set the date on the card: use the date saved for this period if the homeroom
@@ -6030,6 +6022,67 @@
             // Sized only now that the modal is visible -- a hidden textarea has no scrollHeight.
             autoGrowTextarea(commentArea);
             fitPrintAreaToViewport();
+        }
+
+        // ---- Homeroom teacher's comment autosave ----
+        // Writes go straight to this one student's own path in Firebase instead of the
+        // whole behavior node. The old version kept editing the `behavior` object captured
+        // when the card opened, but every save echoes back through the behaviorRef listener
+        // and replaces studentBehaviorMetadata with fresh objects -- so anything typed after
+        // the first save went into a stale object and was silently dropped.
+        let pendingTeacherComment = null; // { studentId, period, value, timer }
+
+        function queueTeacherCommentSave(studentId, period, value) {
+            if (pendingTeacherComment && pendingTeacherComment.timer) clearTimeout(pendingTeacherComment.timer);
+            pendingTeacherComment = { studentId, period, value, timer: setTimeout(flushTeacherCommentSave, 400) };
+            setTeacherCommentStatus('saving');
+        }
+
+        function flushTeacherCommentSave() {
+            const pending = pendingTeacherComment;
+            if (!pending) return Promise.resolve();
+            if (pending.timer) clearTimeout(pending.timer);
+            pendingTeacherComment = null;
+            const { studentId, period, value } = pending;
+            if (!behaviorRef) return Promise.resolve();
+
+            if (!studentBehaviorMetadata[studentId]) studentBehaviorMetadata[studentId] = {};
+            let ref;
+            if (period === 'year') {
+                // The year view is a computed summary — its comment has its own field.
+                studentBehaviorMetadata[studentId].yearComment = value;
+                ref = behaviorRef.child(`id_${studentId}/yearComment`).set(value);
+            } else {
+                if (!studentBehaviorMetadata[studentId][period]) getOrCreateStudentBehavior(studentId, period, 5.0);
+                const record = studentBehaviorMetadata[studentId][period];
+                record.comment = value;
+                // Write the whole period record (not just .comment) so a record that so far
+                // only existed locally doesn't land in Firebase missing its other fields.
+                ref = behaviorRef.child(`id_${studentId}/${period}`).set(record);
+            }
+            return ref.then(() => {
+                if (!pendingTeacherComment) setTeacherCommentStatus('saved');
+            }).catch(err => {
+                console.error('Teacher comment save failed:', err);
+                setTeacherCommentStatus('error');
+                // Keep it queued so the next keystroke / blur / close retries it.
+                if (!pendingTeacherComment) pendingTeacherComment = { studentId, period, value, timer: null };
+            });
+        }
+
+        function setTeacherCommentStatus(state) {
+            const badge = document.getElementById('card-comment-editable-badge');
+            if (!badge) return;
+            const states = {
+                idle:   ['text-slate-400',   '<i class="fa-solid fa-pen mr-1"></i>ຄລິກແກ້ໄຂໄດ້ໂດຍກົງ'],
+                saving: ['text-amber-500',   '<i class="fa-solid fa-spinner fa-spin mr-1"></i>ກຳລັງບັນທຶກ...'],
+                saved:  ['text-emerald-600', '<i class="fa-solid fa-check mr-1"></i>ບັນທຶກແລ້ວ'],
+                error:  ['text-rose-600',    '<i class="fa-solid fa-triangle-exclamation mr-1"></i>ບັນທຶກບໍ່ສຳເລັດ — ຈະລອງໃໝ່']
+            };
+            const [color, html] = states[state] || states.idle;
+            badge.classList.remove('text-slate-400', 'text-amber-500', 'text-emerald-600', 'text-rose-600');
+            badge.classList.add(color);
+            badge.innerHTML = html;
         }
 
         // The report card is laid out at a fixed 800px width so the on-screen preview,
@@ -6084,8 +6137,14 @@
         // UI isn't possible during unload, so this fires the writes AND asks the browser to show
         // its native "leave site? changes may not be saved" confirmation when there's something
         // still pending, giving the teacher a chance to stay and let it finish instead.
+        // Phones often never fire beforeunload when the app is swiped away, so also save
+        // the moment the page is hidden.
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') flushTeacherCommentSave();
+        });
         window.addEventListener('beforeunload', (e) => {
-            const hasPending = Object.keys(gradesSaveDebounceTimers).length > 0;
+            const hasPending = Object.keys(gradesSaveDebounceTimers).length > 0 || !!pendingTeacherComment;
+            flushTeacherCommentSave();
             if (hasPending) {
                 flushAllPendingGradesSaves();
                 e.preventDefault();
@@ -6095,6 +6154,7 @@
 
         // Close report modal handler
         function closeStudentModal() {
+            flushTeacherCommentSave();
             document.getElementById('view-student-report-modal').classList.add('hidden');
         }
 
