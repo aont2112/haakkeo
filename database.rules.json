@@ -1,0 +1,76 @@
+{
+  "rules": {
+    // Everything is closed by default. Access is granted below per path, based on the
+    // signed-in teacher's entry in /teacherRoles/{auth.uid}. That node is written ONLY by
+    // firebase/setup-teachers.mjs (Admin SDK, which bypasses these rules) -- no browser
+    // can change its own roles.
+    //
+    // /teacherRoles/{uid} = {
+    //   code: "KHU01", isAdmin: false, overseer: false,
+    //   homeroom: { "11": true },                      // homeroom teacher of these classes
+    //   subjects: { "11": { "history": true }, ... }   // subject teacher of class+subject
+    // }
+
+    ".read": false,
+    ".write": false,
+
+    // Legacy root-level ມ.5/1 data from the app's first version. Only admins may read it
+    // (for migrateLegacyM51DataIfNeeded(), which copies it into /classes/51); nobody writes.
+    "students":    { ".read": "auth != null && root.child('teacherRoles').child(auth.uid).child('isAdmin').val() === true" },
+    "grades":      { ".read": "auth != null && root.child('teacherRoles').child(auth.uid).child('isAdmin').val() === true" },
+    "behavior":    { ".read": "auth != null && root.child('teacherRoles').child(auth.uid).child('isAdmin').val() === true" },
+    "reportDates": { ".read": "auth != null && root.child('teacherRoles').child(auth.uid).child('isAdmin').val() === true" },
+
+    "teacherRoles": {
+      "$uid": {
+        // Each teacher can read only their own roles.
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": false
+      }
+    },
+
+    // Plain-text passwords from the old browser-side login. Locked completely; the setup
+    // script deletes this node once Firebase Authentication accounts exist.
+    "teacherPasswords": {
+      ".read": false,
+      ".write": false
+    },
+
+    "classes": {
+      // Cross-class read-only views: academic-affairs overseer (KHU24) and admins.
+      ".read": "auth != null && (root.child('teacherRoles').child(auth.uid).child('overseer').val() === true || root.child('teacherRoles').child(auth.uid).child('isAdmin').val() === true)",
+      // Admins may write any class.
+      ".write": "auth != null && root.child('teacherRoles').child(auth.uid).child('isAdmin').val() === true",
+
+      "$classKey": {
+        // Homeroom teacher: full read/write of their own class (roster, behavior, report
+        // dates, and every subject's grades -- same as the app's homeroom role).
+        ".read": "auth != null && root.child('teacherRoles').child(auth.uid).child('homeroom').child($classKey).val() === true",
+        ".write": "auth != null && root.child('teacherRoles').child(auth.uid).child('homeroom').child($classKey).val() === true",
+        ".validate": "$classKey.matches(/^[1-7][12]$/)",
+
+        // Subject teachers of this class need the roster (read-only) to enter grades.
+        "students": {
+          ".read": "auth != null && root.child('teacherRoles').child(auth.uid).child('subjects').child($classKey).exists()"
+        },
+
+        // ...and the report-issue dates (read-only), which lock grade entry per period.
+        "reportDates": {
+          ".read": "auth != null && root.child('teacherRoles').child(auth.uid).child('subjects').child($classKey).exists()"
+        },
+
+        "grades": {
+          "$subject": {
+            // Subject teacher: read/write ONLY the subjects they teach in this class.
+            ".read": "auth != null && root.child('teacherRoles').child(auth.uid).child('subjects').child($classKey).child($subject).val() === true",
+            ".write": "auth != null && root.child('teacherRoles').child(auth.uid).child('subjects').child($classKey).child($subject).val() === true",
+            ".validate": "$subject.matches(/^[a-z]+$/)"
+          }
+        }
+
+        // "behavior" (conduct scores + homeroom comments) has no extra rule: only the
+        // homeroom teacher (above), overseer/admin (read) and admin (write) reach it.
+      }
+    }
+  }
+}

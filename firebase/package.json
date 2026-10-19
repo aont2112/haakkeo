@@ -1,0 +1,11 @@
+{
+  "name": "haakkeo-firebase-setup",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "setup-teachers": "node setup-teachers.mjs"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.7.0"
+  }
+}
