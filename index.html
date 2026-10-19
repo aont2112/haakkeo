@@ -157,23 +157,6 @@
 </head>
 <body class="min-h-screen flex flex-col justify-between">
 
-    <!-- Parent read-only report view: shown only when the page is opened via a
-         ?parent=1&class=..&student=..&token=.. share link. Fully covers the app. -->
-    <div id="view-parent-report" class="hidden fixed inset-0 bg-slate-50 z-[200] overflow-y-auto py-6 px-4">
-        <div class="max-w-2xl mx-auto space-y-4">
-            <div class="bg-white rounded-2xl shadow-sm border border-slate-100 p-6 text-center">
-                <h1 class="text-sm font-bold text-indigo-400 uppercase tracking-wide">ຄະແນນນັກຮຽນ</h1>
-                <p id="parent-view-student-name" class="text-2xl font-bold text-slate-800 mt-1"></p>
-                <p id="parent-view-class-name" class="text-sm text-slate-500 mt-0.5"></p>
-            </div>
-            <div id="parent-view-loading" class="bg-white rounded-2xl shadow-sm border border-slate-100 p-10 text-center text-slate-400 text-sm">
-                <i class="fa-solid fa-circle-notch fa-spin text-2xl mb-2"></i>
-                <p>ກຳລັງໂຫລດຄະແນນ...</p>
-            </div>
-            <div id="parent-view-error" class="hidden bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl p-6 text-center font-semibold text-sm"></div>
-        </div>
-    </div>
-
     <!-- Data-loading overlay: shown until the first sync from Firebase completes -->
     <div id="firebase-loading-overlay" class="fixed inset-0 bg-slate-900/90 z-[100] flex flex-col items-center justify-center gap-4 no-print px-6">
         <i id="firebase-loading-spinner" class="fa-solid fa-circle-notch fa-spin text-4xl text-indigo-400"></i>
@@ -409,22 +392,6 @@
         </div>
     </div>
 
-    <!-- Parent share-link modal -->
-    <div id="view-parent-share-modal" class="hidden fixed inset-0 bg-slate-900/60 z-[90] flex items-center justify-center px-4 no-print">
-        <div class="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4">
-            <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-share-nodes text-teal-600"></i> ລິ້ງແບ່ງປັນໃຫ້ຜູ້ປົກຄອງ</h3>
-            <p class="text-xs text-slate-500">ຜູ້ປົກຄອງກົດລິ້ງນີ້ຈະເຫັນໃບລາຍງານໜ້າດຽວກັນກັບທີ່ອາຈານກຳລັງເບິ່ງຢູ່ນີ້ 100% (ຂອງ <span id="parent-share-period-label" class="font-semibold"></span>) ພິມ ຫຼື ດາວໂຫຼດເປັນຮູບໄດ້ໂດຍກົງ ແລະ ສາມາດຂຽນຄຳເຫັນກັບຄືນມາໄດ້</p>
-            <div class="flex gap-2">
-                <input id="parent-share-link-input" type="text" readonly class="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-xs bg-slate-50" onclick="this.select()">
-                <button onclick="copyParentShareLink()" class="bg-teal-600 hover:bg-teal-700 text-white px-4 rounded-lg text-xs font-semibold transition shrink-0">ຄັດລອກ</button>
-            </div>
-            <div id="parent-share-copied-msg" class="hidden text-emerald-600 text-xs font-semibold text-center">✓ ຄັດລອກລິ້ງແລ້ວ</div>
-            <button onclick="shareParentLinkToWhatsApp()" class="w-full bg-[#25D366] hover:bg-[#1fb958] text-white py-2 rounded-lg text-sm font-semibold transition flex items-center justify-center gap-2">
-                <i class="fa-brands fa-whatsapp text-lg"></i> ແຊຜ່ານ WhatsApp
-            </button>
-            <button onclick="document.getElementById('view-parent-share-modal').classList.add('hidden')" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-2 rounded-lg text-sm font-semibold transition">ປິດ</button>
-        </div>
-    </div>
     <nav id="app-navbar" class="hidden bg-indigo-900 text-white shadow-lg sticky top-0 z-40 no-print">
         <div class="max-w-[1700px] mx-auto px-4 sm:px-6 lg:px-8">
             <div class="flex items-center justify-between h-16">
@@ -1332,10 +1299,6 @@
                     </div>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button id="report-card-share-btn" onclick="shareStudentReport(currentReportCardStudent && currentReportCardStudent.id)" class="bg-teal-600 hover:bg-teal-700 text-white font-semibold text-xs px-4 py-2 rounded-xl transition shadow flex items-center gap-1.5">
-                        <i class="fa-solid fa-share-nodes"></i>
-                        <span>ແບ່ງປັນໃຫ້ຜູ້ປົກຄອງ</span>
-                    </button>
                     <button onclick="downloadReportCardAsImage()" id="download-report-image-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs px-4 py-2 rounded-xl transition shadow flex items-center gap-1.5">
                         <i class="fa-solid fa-image"></i>
                         <span>ດາວໂຫຼດເປັນຮູບພາບ</span>
@@ -1488,25 +1451,11 @@
                         </div>
                     </div>
 
-                    <!-- Parent's Comment Section: a real input when a parent is viewing their
-                         own child's card (auto-saves as they type), a read-only display of
-                         whatever the parent already wrote when the teacher is previewing. -->
+                    <!-- Parent's Comment Section: left blank for the parent to fill in by hand
+                         on the printed / downloaded copy. -->
                     <div class="space-y-1 mb-4">
                         <label class="font-bold text-sm block">ຄຳເຫັນຂອງຜູ້ປົກຄອງ :</label>
-                        <div class="border border-black p-2 bg-white min-h-[48px] relative rounded cursor-text" id="card-parent-comment-wrap" onclick="document.getElementById('card-parent-comment').focus()">
-                            <textarea id="card-parent-comment" rows="2" class="w-full bg-transparent border-none text-sm focus:ring-0 resize-none font-medium leading-relaxed" placeholder="-" disabled></textarea>
-                            <span class="absolute bottom-1 right-1 text-[9px] text-slate-400 no-print pointer-events-none hidden" id="card-parent-comment-badge"><i class="fa-solid fa-pen mr-1"></i>ຄລິກຂຽນຄຳເຫັນ</span>
-                            <span class="absolute bottom-1 right-1 text-[9px] text-emerald-600 no-print pointer-events-none hidden" id="card-parent-comment-saved"><i class="fa-solid fa-check mr-1"></i>ບັນທຶກແລ້ວ</span>
-                        </div>
-                        <!-- Explicit save action for the parent -- on top of the auto-save while
-                             typing, so tapping this gives a clear, certain confirmation the
-                             comment actually reached the teacher (useful right before closing
-                             the page, or on a flaky connection). Teacher's read-only preview
-                             never sees this (see updateParentCommentDisplay). -->
-                        <button type="button" id="card-parent-comment-save-btn" onclick="saveParentCommentNow()"
-                            class="hidden no-print bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition inline-flex items-center gap-1.5">
-                            <i class="fa-solid fa-floppy-disk"></i> ບັນທຶກຄຳເຫັນ
-                        </button>
+                        <div class="border border-black p-2 bg-white min-h-[48px] rounded"></div>
                     </div>
 
                     <!-- Bottom Signatures and Date Details -->
@@ -1903,18 +1852,11 @@
         let gradesRef = null;
         let behaviorRef = null;
         let reportDatesRef = null;
-        let parentCommentsRef = null;
         let currentClassKey = null; // e.g. "51" for ມ.5/1
-
-        // Parent comments keyed by studentId ({text, updatedAt}), synced live for the
-        // teacher's own view (see attachClassDataListeners) so the "ຜູ້ປົກຄອງເຫັນແລ້ວ" badge
-        // in the monthly report and the read-only display inside the report card both stay
-        // current without a page refresh.
-        let parentCommentsData = {};
 
         // Tracks whether the first sync from each Firebase node has completed, so we can
         // hide the loading overlay only once all shared data is actually in hand.
-        const dataLoadedFlags = { students: false, grades: false, behavior: false, reportDates: false, parentComments: false };
+        const dataLoadedFlags = { students: false, grades: false, behavior: false, reportDates: false };
         function markLoaded(key) {
             dataLoadedFlags[key] = true;
             if (Object.values(dataLoadedFlags).every(Boolean)) {
@@ -2650,12 +2592,6 @@
 
         // Tracks which student's report card modal is currently open (for image export filename)
         let currentReportCardStudent = null;
-
-        // True only inside the read-only parent share-link flow (see initParentView) —
-        // reuses the exact same report-card renderer/markup as the teacher's preview, but
-        // disables teacher-only actions (closing back into an app parents never logged
-        // into, re-sharing, editing the comment) on top of it.
-        let isParentReadOnlyView = false;
 
         // Authentication controllers
         function handleLogin(event) {
@@ -4368,7 +4304,6 @@
             gradesRef = db.ref(`classes/${classKey}/grades`);
             behaviorRef = db.ref(`classes/${classKey}/behavior`);
             reportDatesRef = db.ref(`classes/${classKey}/reportDates`);
-            parentCommentsRef = db.ref(`classes/${classKey}/parentComments`);
 
             function startListening() {
                 studentsRef.on('value', snapshot => {
@@ -4414,17 +4349,6 @@
                         dateInputEl.value = monthlyReportDates[selectedPeriod] || '';
                     }
                 }, showDbConnectionError);
-
-                parentCommentsRef.on('value', snapshot => {
-                    parentCommentsData = idKeysFromFirebase(snapshot.val()) || {};
-                    markLoaded('parentComments');
-                    // Live-updates the "ຜູ້ປົກຄອງເຫັນແລ້ວ" badge in the monthly report, and the
-                    // read-only parent-comment field if a report card happens to be open.
-                    refreshCurrentView(!isFocusInside('monthly-report-body'));
-                    if (!document.getElementById('view-student-report-modal').classList.contains('hidden') && currentReportCardStudent) {
-                        updateParentCommentDisplay(currentReportCardStudent.id);
-                    }
-                }, showDbConnectionError);
             }
 
             if (classKey === '51') {
@@ -4446,18 +4370,15 @@
             if (gradesRef) gradesRef.off();
             if (behaviorRef) behaviorRef.off();
             if (reportDatesRef) reportDatesRef.off();
-            if (parentCommentsRef) parentCommentsRef.off();
             studentsRef = null;
             gradesRef = null;
             behaviorRef = null;
             reportDatesRef = null;
-            parentCommentsRef = null;
             currentClassKey = null;
             students = [];
             grades = {};
             studentBehaviorMetadata = {};
             monthlyReportDates = {};
-            parentCommentsData = {};
         }
 
         // Re-renders whichever screen is currently open, so remote changes from other
@@ -4962,12 +4883,6 @@
                                 <i class="fa-solid fa-eye"></i>
                                 <span>View</span>
                             </button>
-                            ${(() => {
-                                const pc = parentCommentsData[student.id];
-                                return (pc && pc.text && pc.text.trim() !== '')
-                                    ? `<span class="text-[10px] font-semibold text-emerald-600 flex items-center gap-1 whitespace-nowrap"><i class="fa-solid fa-comment-dots"></i>ຜູ້ປົກຄອງເຫັນແລ້ວ</span>`
-                                    : '';
-                            })()}
                         </div>
                     </td>
                 `;
@@ -6105,19 +6020,11 @@
             }
             document.getElementById('card-date-location').innerText = `ທີ່ ໂຮງຮຽນ ມັດທະຍົມສຶກສາສົມບູນຮາກແກ້ວ, ວັນທີ ${dateStr}`;
 
-            // Parent's own comment field: read-only display of whatever they've already
-            // written when a teacher is previewing, live-editable (auto-saving) when a
-            // parent is the one looking at it — see updateParentCommentDisplay/
-            // wireParentCommentInput.
-            updateParentCommentDisplay(studentId);
-            if (isParentReadOnlyView) wireParentCommentInput(studentId);
-
             // Show student viewer modal container
             document.getElementById('view-student-report-modal').classList.remove('hidden');
             fitPrintAreaToViewport();
         }
 
-        // Reflects the current parentCommentsData for this student into the card's
         // The report card is laid out at a fixed 800px width so the on-screen preview,
         // the printed page and the downloaded image all stay pixel-identical. On a narrow
         // phone screen that fixed width used to just force the whole browser page to
@@ -6179,260 +6086,10 @@
             }
         });
 
-        // Reflects the current parentCommentsData for this student into the card's
-        // "ຄຳເຫັນຂອງຜູ້ປົກຄອງ" field: editable placeholder + hint badge for the parent
-        // themselves, plain read-only text for a teacher previewing the card. Never
-        // clobbers text the parent is actively mid-typing.
-        function updateParentCommentDisplay(studentId) {
-            const textarea = document.getElementById('card-parent-comment');
-            if (!textarea) return;
-            const existing = parentCommentsData[studentId];
-            const text = (existing && existing.text) || '';
-            if (document.activeElement !== textarea) {
-                textarea.value = text;
-            }
-            const badge = document.getElementById('card-parent-comment-badge');
-            const saveBtn = document.getElementById('card-parent-comment-save-btn');
-            if (isParentReadOnlyView) {
-                textarea.disabled = false;
-                textarea.placeholder = 'ພິມຄຳເຫັນຂອງທ່ານໃສ່ບ່ອນນີ້...';
-                if (badge) badge.classList.remove('hidden');
-                if (saveBtn) saveBtn.classList.remove('hidden');
-            } else {
-                textarea.disabled = true;
-                textarea.placeholder = 'ຍັງບໍ່ມີຄຳເຫັນຈາກຜູ້ປົກຄອງ';
-                if (badge) badge.classList.add('hidden');
-                if (saveBtn) saveBtn.classList.add('hidden');
-            }
-        }
-
-        // Actually writes the parent's comment to Firebase and reflects the outcome in the
-        // "ບັນທຶກແລ້ວ" badge next to the textarea. Shared by the auto-save-while-typing path
-        // (wireParentCommentInput) and the explicit "ບັນທຶກຄຳເຫັນ" button (saveParentCommentNow)
-        // so both give the exact same confirmation.
-        let parentCommentSaveTimer = null;
-        function saveParentCommentText(studentId, value, btnEl) {
-            const savedMsg = document.getElementById('card-parent-comment-saved');
-            if (savedMsg) savedMsg.classList.add('hidden');
-            if (parentCommentSaveTimer) { clearTimeout(parentCommentSaveTimer); parentCommentSaveTimer = null; }
-            const originalBtnHtml = btnEl ? btnEl.innerHTML : null;
-            if (btnEl) {
-                btnEl.disabled = true;
-                btnEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> ກຳລັງບັນທຶກ...';
-            }
-            // "id_" prefixed like every other student-id-keyed object in this app (see
-            // idKeysToFirebase/idKeysFromFirebase) -- plain numeric child keys risk Firebase
-            // silently coercing this collection into a sparse array, and would stop matching
-            // what the teacher-side collection listener (idKeysFromFirebase) expects to find.
-            return db.ref(`classes/${currentClassKey}/parentComments/id_${studentId}`)
-                .set({ text: value, updatedAt: new Date().toISOString() })
-                .then(() => {
-                    if (savedMsg) {
-                        savedMsg.classList.remove('hidden');
-                        setTimeout(() => savedMsg.classList.add('hidden'), 2500);
-                    }
-                })
-                .catch(() => alert('ບັນທຶກຄຳເຫັນບໍ່ໄດ້ ກະລຸນາລອງໃໝ່'))
-                .finally(() => {
-                    if (btnEl) { btnEl.disabled = false; btnEl.innerHTML = originalBtnHtml; }
-                });
-        }
-
-        // Wires the parent's comment textarea to auto-save (debounced) straight to
-        // Firebase, right on the report-card sheet itself rather than a separate box.
-        function wireParentCommentInput(studentId) {
-            const textarea = document.getElementById('card-parent-comment');
-            if (!textarea) return;
-            textarea.oninput = (e) => {
-                const savedMsg = document.getElementById('card-parent-comment-saved');
-                if (savedMsg) savedMsg.classList.add('hidden');
-                if (parentCommentSaveTimer) clearTimeout(parentCommentSaveTimer);
-                const value = e.target.value;
-                parentCommentSaveTimer = setTimeout(() => {
-                    saveParentCommentText(studentId, value, null);
-                }, 600);
-            };
-        }
-
-        // The explicit "ບັນທຶກຄຳເຫັນ" button next to the parent's comment field: saves right
-        // away (no debounce wait) so the parent gets an immediate, certain confirmation --
-        // useful right before closing the page, or over a slow connection.
-        function saveParentCommentNow() {
-            if (!currentReportCardStudent) return;
-            const textarea = document.getElementById('card-parent-comment');
-            const btnEl = document.getElementById('card-parent-comment-save-btn');
-            if (!textarea) return;
-            saveParentCommentText(currentReportCardStudent.id, textarea.value, btnEl);
-        }
-
         // Close report modal handler
         function closeStudentModal() {
-            // Nothing to go "back" to in the read-only parent view — there's no login
-            // underneath, so closing would just leave a blank page.
-            if (isParentReadOnlyView) return;
             document.getElementById('view-student-report-modal').classList.add('hidden');
         }
-
-        // ---- Parent share-link feature ----
-        // Generates (or reuses) a per-student random token, stored on the student record,
-        // and builds a URL that routes straight into the read-only parent view below —
-        // bypassing the normal teacher login entirely.
-        function shareStudentReport(studentId) {
-            if (!studentId) return;
-            const student = students.find(s => s.id === studentId);
-            if (!student) return;
-            let token = student.shareToken;
-            if (!token) {
-                token = (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2));
-                student.shareToken = token;
-                if (studentsRef) studentsRef.set(students).catch(err => console.error('Share token save failed:', err));
-            }
-            // Encode the period currently open in the preview so the parent lands on the
-            // exact same report-card page the teacher was looking at when they shared it.
-            const url = `${location.origin}${location.pathname}?parent=1&class=${currentClassKey}&student=${studentId}&token=${token}&period=${encodeURIComponent(selectedPeriod)}`;
-            document.getElementById('parent-share-link-input').value = url;
-            const periodTitleEl = document.getElementById('card-report-title');
-            document.getElementById('parent-share-period-label').innerText = periodTitleEl ? periodTitleEl.innerText : '';
-            document.getElementById('parent-share-copied-msg').classList.add('hidden');
-            document.getElementById('view-parent-share-modal').classList.remove('hidden');
-        }
-
-        function copyParentShareLink() {
-            const input = document.getElementById('parent-share-link-input');
-            input.select();
-            input.setSelectionRange(0, 99999);
-            const finish = () => {
-                const msg = document.getElementById('parent-share-copied-msg');
-                msg.classList.remove('hidden');
-                setTimeout(() => msg.classList.add('hidden'), 2500);
-            };
-            if (navigator.clipboard && navigator.clipboard.writeText) {
-                navigator.clipboard.writeText(input.value).then(finish).catch(() => { document.execCommand('copy'); finish(); });
-            } else {
-                document.execCommand('copy');
-                finish();
-            }
-        }
-
-        // Opens WhatsApp (app on phone, web.whatsapp.com on desktop) with the share link
-        // pre-filled in a message, ready for the teacher to pick a parent's contact and send.
-        function shareParentLinkToWhatsApp() {
-            const input = document.getElementById('parent-share-link-input');
-            const periodLabel = document.getElementById('parent-share-period-label');
-            const studentName = currentReportCardStudent ? currentReportCardStudent.name.trim() : '';
-            const periodText = periodLabel ? periodLabel.innerText.trim() : '';
-            let message = 'ໃບລາຍງານຜົນການຮຽນ';
-            if (studentName) message += ` ຂອງ ${studentName}`;
-            if (periodText) message += ` (${periodText})`;
-            message += `: ${input.value}`;
-            window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
-        }
-
-        // ---- Parent read-only view ----
-        // Entered only via a share link (?parent=1&class=..&student=..&token=..). Runs its
-        // own minimal, one-time Firebase reads — it never touches the normal teacher login
-        // flow or the class-wide realtime listeners (except a single live subscription on
-        // this one student's own parentComments entry, mirrored into the same
-        // parentCommentsData/updateParentCommentDisplay path the teacher's view uses).
-        let parentViewCommentRef = null;
-
-        function initParentView(classKey, studentIdRaw, token) {
-            document.getElementById('view-parent-report').classList.remove('hidden');
-            const loadingOverlay = document.getElementById('firebase-loading-overlay');
-            if (loadingOverlay) loadingOverlay.classList.add('hidden');
-
-            const studentId = parseInt(studentIdRaw, 10);
-            const localSubjects = getSubjectsForClass(classKey);
-            const classInfo = classList.find(c => c.classKey === classKey);
-
-            // Which report-card page to open: whichever period was open on the teacher's
-            // screen at the moment they generated this link (see shareStudentReport), so
-            // "share of month X" always lands the parent on month X's exact page.
-            const urlParams = new URLSearchParams(location.search);
-            const validPeriods = ['m9', 'm10', 'm11', 'm12', 's1', 'm2', 'm3', 'm4', 's2', 'year'];
-            const periodParam = urlParams.get('period');
-            selectedPeriod = validPeriods.includes(periodParam) ? periodParam : 'year';
-
-            db.ref(`classes/${classKey}/students`).once('value').then(snapshot => {
-                const data = snapshot.val();
-                const list = data ? (Array.isArray(data) ? data.filter(Boolean) : Object.values(data)) : [];
-                const student = list.find(s => s.id === studentId);
-                if (!student || student.shareToken !== token) {
-                    showParentViewError('ລິ້ງນີ້ບໍ່ຖືກຕ້ອງ ຫຼື ໝົດອາຍຸແລ້ວ');
-                    return;
-                }
-                document.getElementById('parent-view-student-name').innerText = student.name;
-                document.getElementById('parent-view-class-name').innerText = classInfo ? `ຫ້ອງ ${classInfo.className}` : '';
-                const sequenceNumber = list.findIndex(s => s.id === studentId) + 1;
-
-                Promise.all([
-                    db.ref(`classes/${classKey}/grades`).once('value'),
-                    db.ref(`classes/${classKey}/behavior`).once('value'),
-                    db.ref(`classes/${classKey}/reportDates`).once('value')
-                ]).then(([gSnap, bSnap, rSnap]) => {
-                    // Populate the exact same globals the logged-in teacher's report-card
-                    // renderer (openStudentReportCardModal) reads, so this produces
-                    // byte-for-byte the same page as the teacher's own preview — instead of
-                    // a separate, simplified rendering that could drift out of sync with it.
-                    students = list;
-                    grades = gradesFromFirebase(gSnap.val());
-                    studentBehaviorMetadata = idKeysFromFirebase(bSnap.val() || {});
-                    monthlyReportDates = rSnap.val() || {};
-                    subjects = localSubjects;
-                    currentClassKey = classKey;
-                    currentUserRole = { type: 'parent', label: 'ຜູ້ປົກຄອງ', subject: null, classKey: classKey, className: classInfo ? classInfo.className : '' };
-                    isParentReadOnlyView = true;
-
-                    openStudentReportCardModal(studentId, sequenceNumber);
-                    setupParentReportChrome();
-
-                    document.getElementById('view-parent-report').classList.add('hidden');
-                    document.getElementById('view-student-report-modal').classList.remove('hidden');
-                    fitPrintAreaToViewport();
-                }).catch(() => showParentViewError('ໂຫລດຄະແນນບໍ່ໄດ້ ກະລຸນາລອງໃໝ່'));
-
-                // Live-subscribe to just this student's own comment entry, so it also
-                // reflects instantly if the parent has this link open on two devices.
-                // "id_" prefixed to match idKeysToFirebase/idKeysFromFirebase -- see the
-                // note on the matching path in wireParentCommentInput.
-                parentViewCommentRef = db.ref(`classes/${classKey}/parentComments/id_${studentId}`);
-                parentViewCommentRef.on('value', snap => {
-                    parentCommentsData[studentId] = snap.val() || {};
-                    updateParentCommentDisplay(studentId);
-                });
-            }).catch(() => showParentViewError('ໂຫລດຂໍ້ມູນບໍ່ໄດ້ ກະລຸນາກວດສອບການເຊື່ອມຕໍ່ອິນເຕີເນັດ'));
-        }
-
-        // Adapts the (otherwise teacher-facing) report-card modal for the read-only parent
-        // view: hides actions that make no sense here (re-share, close-back-into-app), and
-        // swaps the header copy. The parent's own comment now lives directly on the sheet
-        // itself (see updateParentCommentDisplay/wireParentCommentInput) rather than a
-        // separate box, so there's nothing left to relocate here.
-        function setupParentReportChrome() {
-            const titleEl = document.getElementById('report-card-title');
-            if (titleEl) titleEl.innerText = 'ໃບລາຍງານຜົນການຮຽນ';
-            const subtitleEl = document.getElementById('report-card-subtitle');
-            if (subtitleEl) subtitleEl.innerText = 'ໃບລາຍງານນີ້ອັບເດດຕາມຂໍ້ມູນລ່າສຸດຂອງອາຈານໂດຍກົງ — ກົດ "ດາວໂຫຼດເປັນຮູບພາບ" ດ້ານເທິງໄດ້, ຫຼືຂຽນຄຳເຫັນຕໍ່ອາຈານໄດ້ໃນທ້າຍໃບລາຍງານ';
-
-            const shareBtn = document.getElementById('report-card-share-btn');
-            if (shareBtn) shareBtn.classList.add('hidden');
-            const closeBtn = document.getElementById('report-card-close-btn');
-            if (closeBtn) closeBtn.classList.add('hidden');
-            const bottomBar = document.getElementById('report-card-bottom-bar');
-            if (bottomBar) bottomBar.classList.add('hidden');
-        }
-
-        function showParentViewError(msg) {
-            document.getElementById('parent-view-loading').classList.add('hidden');
-            const errEl = document.getElementById('parent-view-error');
-            errEl.innerText = msg;
-            errEl.classList.remove('hidden');
-        }
-
-        // (The old separate per-period score table and standalone comment box that used
-        // to live below the report card in the parent view have been replaced entirely by
-        // the shared openStudentReportCardModal renderer + the inline on-sheet comment
-        // field -- see updateParentCommentDisplay/wireParentCommentInput above.)
 
         // Export the printable report card area as a PNG image the teacher can save/share
         function downloadReportCardAsImage() {
@@ -7420,14 +7077,7 @@
         }
 
         // Start App
-        (function () {
-            const params = new URLSearchParams(location.search);
-            if (params.get('parent') === '1' && params.get('class') && params.get('student') && params.get('token')) {
-                initParentView(params.get('class'), params.get('student'), params.get('token'));
-            } else {
-                initializeSystem();
-            }
-        })();
+        initializeSystem();
     </script>
 
     <!-- Excel-like behaviour for every grade-entry grid: arrow-key/Enter navigation,
