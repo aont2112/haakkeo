@@ -313,6 +313,26 @@
                         <tbody id="subject-results-tbody"></tbody>
                     </table>
                 </div>
+
+                <!-- ຕົກ (average < 5) students with the score parts behind it, filled by
+                     renderSubjectResultsWeakStudents(). -->
+                <div class="pt-2">
+                    <h4 class="text-sm font-bold text-slate-600 uppercase tracking-wider mb-2">ລາຍຊື່ນັກຮຽນອ່ອນ (ສະເລ່ຍຕ່ຳກວ່າ 5) ແລະ ສາເຫດ</h4>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-left">
+                            <thead>
+                                <tr class="text-xs text-slate-500 border-b border-slate-200">
+                                    <th class="py-2 pr-2">ຫ້ອງ</th>
+                                    <th class="py-2 pr-2">ຊື່ ແລະ ນາມສະກຸນ</th>
+                                    <th class="py-2 pr-2">ລາຍລະອຽດຄະແນນ</th>
+                                    <th class="py-2 pr-2 text-center">ສະເລ່ຍ</th>
+                                    <th class="py-2">ອ່ອນຍ້ອນ</th>
+                                </tr>
+                            </thead>
+                            <tbody id="subject-results-weak-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -2878,6 +2898,42 @@
             const avg = periodKey === 's1' ? s1Avg : periodKey === 's2' ? s2Avg : yearAvg;
             return avg > 0 ? avg : null;
         }
+        // The score parts behind one student's average for the period, and which of them
+        // are below 5 or missing (the "ອ່ອນຍ້ອນ" reasons). Month: ສ່ວນຮ່ວມ/ວຽກບ້ານ/ກວດກງານອື່ນ
+        // (or ໃນຫ້ອງ for grades entered before the breakdown existed) + ເສັງ; exam-only
+        // subjects just ເສັງ. Semester: each month's average + the semester exam. Year:
+        // the two semester averages.
+        const subjectResultMonthLabels = { m9: 'ເດືອນ 9', m10: 'ເດືອນ 10', m11: 'ເດືອນ 11', m12: 'ເດືອນ 12', m2: 'ເດືອນ 2', m3: 'ເດືອນ 3', m4: 'ເດືອນ 4' };
+        function getSubjectResultBreakdown(sGrades, periodKey, subjectKey) {
+            const num = (v) => { const n = parseFloat(v); return isNaN(n) ? null : n; };
+            let parts;
+            if (MONTHLY_PERIODS.includes(periodKey)) {
+                const pd = (sGrades && sGrades[periodKey]) || {};
+                const subParts = [
+                    { label: 'ສ່ວນຮ່ວມໃນຫ້ອງ', value: num(pd.participation) },
+                    { label: 'ວຽກບ້ານ', value: num(pd.homework) },
+                    { label: 'ກວດກງານອື່ນ', value: num(pd.othercheck) }
+                ];
+                const examPart = { label: 'ເສັງ', value: num(pd.exam) };
+                if (EXAM_ONLY_SUBJECTS.includes(subjectKey)) parts = [examPart];
+                else if (subParts.some(p => p.value !== null)) parts = [...subParts, { label: 'ໃນຫ້ອງ', value: num(pd.class), infoOnly: true }, examPart];
+                else parts = [{ label: 'ໃນຫ້ອງ', value: num(pd.class) }, examPart];
+            } else if (periodKey === 's1' || periodKey === 's2') {
+                const months = periodKey === 's1' ? ['m9', 'm10', 'm11', 'm12'] : ['m2', 'm3', 'm4'];
+                parts = months.map(m => ({ label: subjectResultMonthLabels[m], value: getPeriodAvg(sGrades ? sGrades[m] : null, m) }));
+                parts.push({ label: periodKey === 's1' ? 'ເສັງພາກຮຽນ I' : 'ເສັງພາກຮຽນ 2', value: num(((sGrades && sGrades[periodKey]) || {}).exam) });
+            } else {
+                const { s1Avg, s2Avg } = calculateAveragesFromGrades(sGrades);
+                parts = [
+                    { label: 'ພາກຮຽນ I', value: s1Avg > 0 ? s1Avg : null },
+                    { label: 'ພາກຮຽນ 2', value: s2Avg > 0 ? s2Avg : null }
+                ];
+            }
+            const reasons = parts.filter(p => !p.infoOnly && (p.value === null || p.value < 5))
+                .map(p => p.value === null ? `ບໍ່ມີຄະແນນ${p.label}` : `ຄະແນນ${p.label} ຕ່ຳ (${p.value.toFixed(2)})`);
+            if (!reasons.length) reasons.push('ຄະແນນລວມຕ່ຳກວ່າ 5');
+            return { parts, reasons };
+        }
         function renderSubjectResultsSection() {
             const section = document.getElementById('teacher-home-subject-results-section');
             const roles = currentTeacherAccount.subjectRoles;
@@ -2928,15 +2984,20 @@
                     : (defaultRostersByClass[classKey] || []);
                 const subjectGrades = gradesFromFirebase({ [subjectKey]: gradesSnap.val() })[subjectKey] || {};
                 const counts = { good: 0, mid: 0, fail: 0, none: 0 };
+                const weakStudents = [];
                 let sum = 0;
-                clsStudents.forEach(student => {
+                [...clsStudents].sort((a, b) => a.id - b.id).forEach(student => {
                     const avg = getSubjectResultAvg(subjectGrades[student.id], periodKey);
-                    counts[classifySubjectResult(avg)]++;
+                    const category = classifySubjectResult(avg);
+                    counts[category]++;
                     if (avg !== null) sum += avg;
+                    if (category === 'fail') {
+                        weakStudents.push({ student, avg, ...getSubjectResultBreakdown(subjectGrades[student.id], periodKey, subjectKey) });
+                    }
                 });
                 const scored = counts.good + counts.mid + counts.fail;
                 const cls = classList.find(c => c.classKey === classKey);
-                return { className: cls ? cls.className : classKey, total: clsStudents.length, counts, classAvg: scored ? sum / scored : null };
+                return { className: cls ? cls.className : classKey, total: clsStudents.length, counts, classAvg: scored ? sum / scored : null, weakStudents };
             }));
 
             Promise.all(perClassFetches).then(rows => {
@@ -3010,6 +3071,8 @@
                 </div>
             `;
 
+            renderSubjectResultsWeakStudents(rows);
+
             if (subjectResultsBarChart) subjectResultsBarChart.destroy();
             if (subjectResultsPieChart) subjectResultsPieChart.destroy();
 
@@ -3050,6 +3113,31 @@
                     }
                 }
             });
+        }
+
+        function renderSubjectResultsWeakStudents(rows) {
+            const tbody = document.getElementById('subject-results-weak-tbody');
+            const weakRows = rows.flatMap(r => r.weakStudents.map(w => ({ className: r.className, ...w })));
+            if (!weakRows.length) {
+                tbody.innerHTML = '<tr><td colspan="5" class="py-3 text-center text-slate-400">ບໍ່ມີນັກຮຽນອ່ອນໃນຊ່ວງເວລານີ້</td></tr>';
+                return;
+            }
+            tbody.innerHTML = weakRows.map(w => {
+                const chips = w.parts.map(p => {
+                    const isLow = !p.infoOnly && (p.value === null || p.value < 5);
+                    const chipClass = isLow ? 'bg-rose-50 text-rose-700 border-rose-200 font-semibold' : 'bg-slate-50 text-slate-600 border-slate-200';
+                    return `<span class="inline-block border rounded-md px-1.5 py-0.5 text-[11px] mr-1 mb-1 ${chipClass}">${p.label}: ${p.value === null ? '-' : p.value.toFixed(2)}</span>`;
+                }).join('');
+                return `
+                    <tr class="border-b border-slate-100 last:border-0 align-top">
+                        <td class="py-2 pr-2 font-semibold text-slate-700 whitespace-nowrap">${w.className}</td>
+                        <td class="py-2 pr-2 text-slate-700">${w.student.name}${w.student.nickname ? ` <span class="text-slate-400 text-xs">(${w.student.nickname})</span>` : ''}</td>
+                        <td class="py-2 pr-2">${chips}</td>
+                        <td class="py-2 pr-2 text-center font-bold" style="color:${subjectResultsColors.fail}">${w.avg.toFixed(2)}</td>
+                        <td class="py-2 text-xs text-rose-700">${w.reasons.join(', ')}</td>
+                    </tr>
+                `;
+            }).join('');
         }
 
         // isAdmin-only: lists every login code in teacherAccounts order with its name and
