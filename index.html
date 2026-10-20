@@ -269,13 +269,13 @@
             <div id="teacher-home-subject-buttons" class="flex flex-wrap gap-3"></div>
         </div>
 
-        <!-- Every subject teacher: monthly results summary for the subject(s) they teach,
-             across all their classes. Per student, that subject's monthly average:
+        <!-- Every subject teacher: results summary (monthly, semester, year) for the subject(s) they teach,
+             across all their classes. Per student, that subject's average for the period:
              >= 7 ເກັ່ງ, 5 to < 7 ກາງ, < 5 ຕົກ. Read-only one-time reads of only the
              roster + grades/{subject} that database.rules.json already lets them read.
              Rendered by renderSubjectResultsSection() / loadSubjectResultsSummary(). -->
         <div id="teacher-home-subject-results-section" class="hidden bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-3">
-            <h3 class="text-sm font-bold text-slate-600 uppercase tracking-wider">ສະຫຼຸບຜົນການຮຽນປະຈຳເດືອນ (ວິຊາທີ່ສອນ)</h3>
+            <h3 class="text-sm font-bold text-slate-600 uppercase tracking-wider">ສະຫຼຸບຜົນການຮຽນ ປະຈຳເດືອນ / ພາກຮຽນ / ໝົດປີ (ວິຊາທີ່ສອນ)</h3>
             <div class="flex flex-wrap gap-3 items-center">
                 <select id="subject-results-subject-select" onchange="loadSubjectResultsSummary()"
                         class="bg-slate-100 border border-slate-200 text-slate-700 px-3 py-2 rounded-lg text-sm font-semibold"></select>
@@ -2858,9 +2858,9 @@
             }
         }
 
-        // Every subject teacher: "ສະຫຼຸບຜົນການຮຽນປະຈຳເດືອນ" for the subject(s) they teach.
+        // Every subject teacher: "ສະຫຼຸບຜົນການຮຽນ" (month, semester or year) for the subject(s) they teach.
         // One subject at a time (a teacher with several subjects picks from the dropdown),
-        // one monthly period at a time, across every class they teach that subject in.
+        // one period at a time, across every class they teach that subject in.
         const subjectResultsColors = { good: '#0ca30c', mid: '#fab219', fail: '#d03b3b', none: '#94a3b8' };
         const subjectResultsLabels = { good: 'ເກັ່ງ (7 ຂຶ້ນໄປ)', mid: 'ກາງ (5 - ຕ່ຳກວ່າ 7)', fail: 'ຕົກ (ຕ່ຳກວ່າ 5)', none: 'ຍັງບໍ່ມີຄະແນນ' };
         function classifySubjectResult(avg) {
@@ -2868,6 +2868,15 @@
             if (avg >= 7) return 'good';
             if (avg >= 5) return 'mid';
             return 'fail';
+        }
+        // A student's average in one subject for the selected period: the month's average,
+        // or the semester/year final average from calculateAveragesFromGrades() (same as the
+        // official reports, which treat 0 as "no score yet").
+        function getSubjectResultAvg(sGrades, periodKey) {
+            if (MONTHLY_PERIODS.includes(periodKey)) return getPeriodAvg(sGrades ? sGrades[periodKey] : null, periodKey);
+            const { s1Avg, s2Avg, yearAvg } = calculateAveragesFromGrades(sGrades);
+            const avg = periodKey === 's1' ? s1Avg : periodKey === 's2' ? s2Avg : yearAvg;
+            return avg > 0 ? avg : null;
         }
         function renderSubjectResultsSection() {
             const section = document.getElementById('teacher-home-subject-results-section');
@@ -2887,8 +2896,7 @@
             subjectSelect.classList.toggle('hidden', subjectKeys.length < 2);
 
             const periodSelect = document.getElementById('subject-results-period-select');
-            periodSelect.innerHTML = '<option value="">ເລືອກເດືອນ</option>' + monthlyByClassPeriods
-                .filter(p => MONTHLY_PERIODS.includes(p.key))
+            periodSelect.innerHTML = '<option value="">ເລືອກຊ່ວງເວລາ</option>' + monthlyByClassPeriods
                 .map(p => `<option value="${p.key}">${p.label}</option>`).join('');
         }
         let subjectResultsBarChart = null;
@@ -2922,7 +2930,7 @@
                 const counts = { good: 0, mid: 0, fail: 0, none: 0 };
                 let sum = 0;
                 clsStudents.forEach(student => {
-                    const avg = getPeriodAvg(subjectGrades[student.id] ? subjectGrades[student.id][periodKey] : null, periodKey);
+                    const avg = getSubjectResultAvg(subjectGrades[student.id], periodKey);
                     counts[classifySubjectResult(avg)]++;
                     if (avg !== null) sum += avg;
                 });
@@ -4775,8 +4783,7 @@
         }
 
         // Calculate Semester 1 Monthly Average: (Month 9 + Month 10 + Month 11 + Month 12) / 4
-        function getS1MonthlyAvg(studentId, subject) {
-            const sGrades = grades[subject][studentId];
+        function getS1MonthlyAvg(sGrades) {
             if (!sGrades) return null;
             
             const m9 = getPeriodAvg(sGrades['m9'], 'm9');
@@ -4796,8 +4803,7 @@
         }
 
         // Calculate Semester 2 Monthly Average: (Month 2 + Month 3 + Month 4) / 3
-        function getS2MonthlyAvg(studentId, subject) {
-            const sGrades = grades[subject][studentId];
+        function getS2MonthlyAvg(sGrades) {
             if (!sGrades) return null;
             
             const m2 = getPeriodAvg(sGrades['m2'], 'm2');
@@ -4816,12 +4822,17 @@
 
         // Calculate final Semester 1, Semester 2, and overall Year averages
         function calculateStudentAverages(studentId, subjectKey = currentSubject) {
-            const sGrades = grades[subjectKey][studentId];
+            return calculateAveragesFromGrades(grades[subjectKey][studentId]);
+        }
+
+        // Same calculation from one student's grades for one subject ({ m9: {...}, s1: {...}, ... }),
+        // so read-only summaries over fetched data (not the global `grades`) use the same formula.
+        function calculateAveragesFromGrades(sGrades) {
             if (!sGrades) return { s1Avg: 0, s2Avg: 0, yearAvg: 0, s1MonthlyAvg: null, s2MonthlyAvg: null };
 
             // Semester 1 Final Average = (S1 Monthly Avg + S1 Exam Score) / 2
-            const s1MonthlyAvg = getS1MonthlyAvg(studentId, subjectKey);
-            const s1Exam = parseFloat(sGrades['s1'].exam);
+            const s1MonthlyAvg = getS1MonthlyAvg(sGrades);
+            const s1Exam = parseFloat((sGrades['s1'] || {}).exam);
             let s1Avg = 0;
             
             if (s1MonthlyAvg !== null && !isNaN(s1Exam)) {
@@ -4831,8 +4842,8 @@
             }
 
             // Semester 2 Final Average = (S2 Monthly Avg + S2 Exam Score) / 2
-            const s2MonthlyAvg = getS2MonthlyAvg(studentId, subjectKey);
-            const s2Exam = parseFloat(sGrades['s2'].exam);
+            const s2MonthlyAvg = getS2MonthlyAvg(sGrades);
+            const s2Exam = parseFloat((sGrades['s2'] || {}).exam);
             let s2Avg = 0;
             
             if (s2MonthlyAvg !== null && !isNaN(s2Exam)) {
