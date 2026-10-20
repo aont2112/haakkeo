@@ -266,7 +266,7 @@
 
         <div id="teacher-home-subjects-section" class="hidden bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-3">
             <h3 class="text-sm font-bold text-slate-600 uppercase tracking-wider">ປ້ອນຄະແນນ (ວິຊາທີ່ສອນ)</h3>
-            <div id="teacher-home-subject-buttons" class="flex flex-wrap gap-3"></div>
+            <div id="teacher-home-subject-buttons" class="space-y-4"></div>
         </div>
 
         <!-- Every subject teacher: results summary (monthly, semester, year) for the subject(s) they teach,
@@ -2857,6 +2857,20 @@
         // class the teacher is responsible for, and one button per class+subject they
         // teach grades for. Re-run every time the teacher lands back on this screen (login,
         // or backToTeacherHome()) so it always reflects the current teacherAccounts data.
+        // Month/semester choices for subject grade entry, in school-year order
+        // (same colours as the view-subject-month-select page).
+        const SUBJECT_ENTRY_PERIOD_BUTTONS = [
+            { key: 'm9', label: 'ເດືອນ 9', cls: 'bg-indigo-50 hover:bg-indigo-100 text-indigo-800' },
+            { key: 'm10', label: 'ເດືອນ 10', cls: 'bg-indigo-50 hover:bg-indigo-100 text-indigo-800' },
+            { key: 'm11', label: 'ເດືອນ 11', cls: 'bg-indigo-50 hover:bg-indigo-100 text-indigo-800' },
+            { key: 'm12', label: 'ເດືອນ 12', cls: 'bg-indigo-50 hover:bg-indigo-100 text-indigo-800' },
+            { key: 's1', label: 'ເສັງພາກຮຽນ 1', cls: 'bg-violet-50 hover:bg-violet-100 text-violet-800' },
+            { key: 'm2', label: 'ເດືອນ 2', cls: 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800' },
+            { key: 'm3', label: 'ເດືອນ 3', cls: 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800' },
+            { key: 'm4', label: 'ເດືອນ 4', cls: 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800' },
+            { key: 's2', label: 'ເສັງພາກຮຽນ 2', cls: 'bg-teal-50 hover:bg-teal-100 text-teal-800' }
+        ];
+
         function renderTeacherHome() {
             if (!currentTeacherAccount) return;
             document.getElementById('teacher-home-name').innerText = currentTeacherAccount.name;
@@ -2884,16 +2898,34 @@
             subjectButtons.innerHTML = '';
             if (currentTeacherAccount.subjectRoles.length) {
                 subjectSection.classList.remove('hidden');
+                // Each subject role: its button plus an inline month picker underneath, so the
+                // teacher picks the month right here and goes straight to that month's entry page.
+                // The picker toggles on click; with only one role it starts open.
+                const onlyOne = currentTeacherAccount.subjectRoles.length === 1;
                 currentTeacherAccount.subjectRoles.forEach(role => {
                     const cls = classList.find(c => c.classKey === role.classKey);
                     const classSubjects = getSubjectsForClass(role.classKey);
                     const subjLabel = classSubjects[role.subject] || role.subject;
+                    const block = document.createElement('div');
                     const btn = document.createElement('button');
                     btn.type = 'button';
                     btn.className = 'bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl text-sm font-semibold transition flex items-center gap-2 shadow-sm';
                     btn.innerHTML = `<i class="fa-solid fa-pen-to-square"></i><span>ປ້ອນຄະແນນ ${cls.className} (${subjLabel})</span>`;
-                    btn.onclick = () => selectSubjectRole(role.classKey, role.subject);
-                    subjectButtons.appendChild(btn);
+                    const picker = document.createElement('div');
+                    picker.className = (onlyOne ? '' : 'hidden ') + 'mt-4 sm:ml-6';
+                    picker.innerHTML = `
+                        <h4 class="text-base font-bold text-slate-800 mb-1">ເລືອກເດືອນທີ່ຈະປ້ອນຄະແນນ</h4>
+                        <p class="text-sm text-slate-400 mb-4">ວິຊາ: <span class="font-semibold text-indigo-600">${subjLabel}</span></p>
+                        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                            ${SUBJECT_ENTRY_PERIOD_BUTTONS.map(p => `<button type="button" data-period="${p.key}" class="${p.cls} font-bold py-4 rounded-xl transition text-sm">${p.label}</button>`).join('')}
+                        </div>`;
+                    picker.querySelectorAll('button[data-period]').forEach(pb => {
+                        pb.onclick = () => selectSubjectRole(role.classKey, role.subject, pb.dataset.period);
+                    });
+                    btn.onclick = () => picker.classList.toggle('hidden');
+                    block.appendChild(btn);
+                    block.appendChild(picker);
+                    subjectButtons.appendChild(block);
                 });
             } else {
                 subjectSection.classList.add('hidden');
@@ -4034,7 +4066,7 @@
 
         // Called when the teacher taps one of their "ປ້ອນຄະແນນ" buttons: builds the
         // subject-teacher role for that class+subject and enters straight into grade entry.
-        function selectSubjectRole(classKey, subjectKey) {
+        function selectSubjectRole(classKey, subjectKey, period) {
             const cls = classList.find(c => c.classKey === classKey);
             const classSubjects = getSubjectsForClass(classKey);
             const ta = teacherAssignments[classKey];
@@ -4046,7 +4078,7 @@
                 classKey: classKey,
                 className: cls.className
             };
-            enterClassRole(subjectKey);
+            enterClassRole(subjectKey, period);
         }
 
         // Shared by selectHomeroomRole/selectSubjectRole: leaves the teacher-home screen,
@@ -4054,7 +4086,7 @@
         // is given, jumps straight to that subject's grade-entry pane instead of the class
         // home screen (attachClassDataListeners sets the `subjects` list synchronously, so
         // it's already correct by the time openSubjectEntry runs).
-        function enterClassRole(directSubject) {
+        function enterClassRole(directSubject, directPeriod) {
             sessionStorage.setItem('gradebook_active_role', JSON.stringify(currentUserRole));
             document.getElementById('view-teacher-home').classList.add('hidden');
             document.getElementById('app-navbar').classList.remove('hidden');
@@ -4062,7 +4094,7 @@
             applyClassBranding();
             attachClassDataListeners(currentUserRole.classKey);
             if (directSubject) {
-                openSubjectEntry(directSubject);
+                openSubjectEntry(directSubject, directPeriod);
             } else {
                 navigateTo('home');
             }
@@ -4372,7 +4404,7 @@
         }
 
         // Open subject entry
-        function openSubjectEntry(subjectKey) {
+        function openSubjectEntry(subjectKey, period) {
             // Check credentials privilege before loading the pane
             if (!hasSubjectEditPrivilege(subjectKey)) {
                 showToast("⚠️ ທ່ານບໍ່ມີສິດໃນການປ້ອນຄະແນນວິຊານີ້!", "text-red-400");
@@ -4382,7 +4414,9 @@
             currentSubject = subjectKey;
             document.getElementById('subject-select').value = subjectKey;
             document.getElementById('current-subject-title').innerText = subjects[subjectKey];
-            navigateTo('subject-month-select');
+            // A month already picked on the teacher home page skips the month-select page.
+            if (period) selectSubjectMonth(period);
+            else navigateTo('subject-month-select');
         }
 
         // The 7 regular months go to the paper-form-styled monthly entry page;
@@ -5049,6 +5083,12 @@
                 renderMonthlyReport();
             } else if (currentView === 'home') {
                 updateNavbarAndPrivileges();
+            } else if (currentView === 'subject-month-entry') {
+                // Can be opened straight from the teacher home month picker before the
+                // class data has arrived, so re-render once it does (not while typing).
+                if (!isFocusInside('month-entry-table-body')) renderMonthlyEntryForm();
+            } else if (currentView === 'subject-semester-entry') {
+                if (!isFocusInside('sem-entry-table-body')) renderSemesterEntryForm();
             }
         }
 
