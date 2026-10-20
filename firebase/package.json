@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "setup-teachers": "node setup-teachers.mjs"
+    "setup-teachers": "node setup-teachers.mjs",
+    "seed-students": "node seed-students.mjs"
   },
   "dependencies": {
     "firebase-admin": "^12.7.0"

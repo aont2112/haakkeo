@@ -2,3 +2,5 @@ node_modules/
 # Admin SDK key and generated initial passwords -- never commit these.
 firebase/service-account.json
 firebase/initial-passwords.csv
+# Old index.html that still contains the student rosters, read by seed-students.mjs.
+firebase/roster-source.html
