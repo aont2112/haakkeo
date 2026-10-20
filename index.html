@@ -906,7 +906,7 @@
                     <thead id="monthly-report-header">
                         <!-- Dynamic generated in JavaScript based on period selection -->
                     </thead>
-                    <tbody id="monthly-report-body" class="divide-y divide-slate-100 text-xs text-slate-700">
+                    <tbody id="monthly-report-body" data-xlgrid="1" class="divide-y divide-slate-100 text-xs text-slate-700">
                         <!-- Filled by Javascript dynamically -->
                     </tbody>
                 </table>
@@ -4927,12 +4927,12 @@
                     <td class="p-1 bg-slate-50 border-r border-slate-200">
                         <input type="text" inputmode="decimal" value="${behavior.absent}" ${disabledAttr}
                             oninput="updateBehaviorField(${student.id}, '${selectedPeriod}', 'absent', this.value)" 
-                            class="w-full ${inputBg} border border-slate-200 rounded p-1 text-center text-xs font-semibold focus:outline-none focus:border-indigo-500 text-slate-800">
+                            class="xlcell w-full ${inputBg} border border-slate-200 rounded p-1 text-center text-xs font-semibold focus:outline-none focus:border-indigo-500 text-slate-800">
                     </td>
                     <td class="p-1 bg-slate-50 border-r border-slate-200">
                         <input type="text" inputmode="decimal" value="${behavior.unexcused}" ${disabledAttr}
                             oninput="updateBehaviorField(${student.id}, '${selectedPeriod}', 'unexcused', this.value)" 
-                            class="w-full ${inputBg} border border-slate-200 rounded p-1 text-center text-xs font-semibold focus:outline-none focus:border-indigo-500 text-slate-800">
+                            class="xlcell w-full ${inputBg} border border-slate-200 rounded p-1 text-center text-xs font-semibold focus:outline-none focus:border-indigo-500 text-slate-800">
                     </td>
                     <td class="p-1 bg-slate-50 border-r border-slate-200">
                         <select onchange="updateBehaviorField(${student.id}, '${selectedPeriod}', 'manner', this.value)" ${disabledAttr}
