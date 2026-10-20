@@ -294,6 +294,7 @@
                     <div class="bg-slate-50 rounded-xl p-4 border border-slate-100">
                         <p class="text-xs font-semibold text-slate-600 mb-2 text-center">ລວມທຸກຫ້ອງ</p>
                         <canvas id="subject-results-pie-chart" height="220"></canvas>
+                        <div id="subject-results-pie-details" class="mt-3 space-y-1 text-xs"></div>
                     </div>
                 </div>
                 <div class="overflow-x-auto">
@@ -2971,6 +2972,35 @@
                     <td class="py-2 text-slate-700">${r.classAvg === null ? '-' : r.classAvg.toFixed(2)}</td>
                 </tr>
             `).join('');
+
+            // ລວມທຸກຫ້ອງ: total row under the per-class rows, percent out of every student.
+            const totalCell = (cat) => `${totals[cat]} <span class="text-[11px] font-normal">(${pct(totals[cat])}%)</span>`;
+            const scoredRows = rows.filter(r => r.classAvg !== null);
+            const scoredCount = scoredRows.reduce((s, r) => s + r.counts.good + r.counts.mid + r.counts.fail, 0);
+            const overallAvg = scoredCount ? scoredRows.reduce((s, r) => s + r.classAvg * (r.counts.good + r.counts.mid + r.counts.fail), 0) / scoredCount : null;
+            document.getElementById('subject-results-tbody').innerHTML += `
+                <tr class="border-t-2 border-slate-300 bg-slate-50 font-bold">
+                    <td class="py-2 text-left text-slate-800">ລວມທຸກຫ້ອງ</td>
+                    <td class="py-2 text-slate-700">${totalStudents}</td>
+                    <td class="py-2" style="color:${subjectResultsColors.good}">${totalCell('good')}</td>
+                    <td class="py-2" style="color:${subjectResultsColors.mid}">${totalCell('mid')}</td>
+                    <td class="py-2" style="color:${subjectResultsColors.fail}">${totalCell('fail')}</td>
+                    <td class="py-2 text-slate-400">${totalCell('none')}</td>
+                    <td class="py-2 text-slate-800">${overallAvg === null ? '-' : overallAvg.toFixed(2)}</td>
+                </tr>
+            `;
+
+            // Count + percent per category written out under the doughnut, not just in its tooltip.
+            document.getElementById('subject-results-pie-details').innerHTML = categories.map(cat => `
+                <div class="flex items-center justify-between gap-2">
+                    <span class="flex items-center gap-1.5 text-slate-600"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:${subjectResultsColors[cat]}"></span>${subjectResultsLabels[cat]}</span>
+                    <span class="font-semibold" style="color:${subjectResultsColors[cat]}">${totals[cat]} ຄົນ (${pct(totals[cat])}%)</span>
+                </div>
+            `).join('') + `
+                <div class="flex items-center justify-between gap-2 pt-1 mt-1 border-t border-slate-200 font-semibold text-slate-700">
+                    <span>ລວມ</span><span>${totalStudents} ຄົນ (100%)</span>
+                </div>
+            `;
 
             if (subjectResultsBarChart) subjectResultsBarChart.destroy();
             if (subjectResultsPieChart) subjectResultsPieChart.destroy();
