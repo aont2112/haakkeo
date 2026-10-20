@@ -274,6 +274,55 @@
              >= 7 ເກັ່ງ, 5 to < 7 ກາງ, < 5 ຕົກ. Read-only one-time reads of only the
              roster + grades/{subject} that database.rules.json already lets them read.
              Rendered by renderSubjectResultsSection() / loadSubjectResultsSummary(). -->
+        <!-- Homeroom teacher: overall results of their own class for one period, using the
+             same ເກັ່ງ/ກາງ/ອ່ອນບາງວິຊາ/ຫຼຸດຄາດໝາຍ rules and core subjects as the ສົ່ງວິຊາການ
+             report, plus which subjects each weak student is weak in. Not shown to
+             ອາຈານ ທອງທິບ (KHU14), who is homeroom of every class. Rendered by
+             renderHomeroomResultsSection() / loadHomeroomResultsSummary(). -->
+        <div id="teacher-home-homeroom-results-section" class="hidden bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-3">
+            <h3 class="text-sm font-bold text-slate-600 uppercase tracking-wider">ສະຫຼຸບຜົນການຮຽນຂອງຫ້ອງ (ຄູປະຈຳຫ້ອງ)</h3>
+            <div class="flex flex-wrap gap-3 items-center">
+                <select id="homeroom-results-class-select" onchange="loadHomeroomResultsSummary()"
+                        class="bg-slate-100 border border-slate-200 text-slate-700 px-3 py-2 rounded-lg text-sm font-semibold"></select>
+                <select id="homeroom-results-period-select" onchange="loadHomeroomResultsSummary()"
+                        class="bg-slate-100 border border-slate-200 text-slate-700 px-3 py-2 rounded-lg text-sm font-semibold"></select>
+            </div>
+            <p class="text-xs text-slate-500">ຕາມເກນສະຫຼຸບສົ່ງວິຊາການ: ເກັ່ງ = ທຸກວິຊາ 7 ຂຶ້ນໄປ · ກາງ = ມີວິຊາຕ່ຳກວ່າ 7 · ອ່ອນບາງວິຊາ = ມີວິຊາຕ່ຳກວ່າ 5 · ຫຼຸດຄາດໝາຍ = ສະເລ່ຍລວມຕ່ຳກວ່າ 5</p>
+            <div id="homeroom-results-loading" class="hidden text-xs text-slate-400 flex items-center gap-2"></div>
+            <div id="homeroom-results-content" class="hidden space-y-4">
+                <div class="grid grid-cols-2 sm:grid-cols-5 gap-3" id="homeroom-results-stats"></div>
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div class="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                        <p class="text-xs font-semibold text-slate-600 mb-2 text-center">ຈຳນວນນັກຮຽນແຕ່ລະກຸ່ມ</p>
+                        <canvas id="homeroom-results-pie-chart" height="220"></canvas>
+                        <div id="homeroom-results-pie-details" class="mt-3 space-y-1 text-xs"></div>
+                    </div>
+                    <div class="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                        <p class="text-xs font-semibold text-slate-600 mb-2 text-center">ຈຳນວນນັກຮຽນທີ່ອ່ອນ (ຕ່ຳກວ່າ 5) ແຕ່ລະວິຊາ</p>
+                        <canvas id="homeroom-results-subject-chart" height="220"></canvas>
+                    </div>
+                </div>
+                <div class="pt-2">
+                    <h4 class="text-sm font-bold text-slate-600 uppercase tracking-wider mb-2">ລາຍຊື່ນັກຮຽນອ່ອນ ແລະ ອ່ອນວິຊາໃດ</h4>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-left">
+                            <thead>
+                                <tr class="text-xs text-slate-500 border-b border-slate-200">
+                                    <th class="py-2 pr-2">ລ/ດ</th>
+                                    <th class="py-2 pr-2">ຊື່ ແລະ ນາມສະກຸນ</th>
+                                    <th class="py-2 pr-2">ກຸ່ມ</th>
+                                    <th class="py-2 pr-2">ຄະແນນແຕ່ລະວິຊາ</th>
+                                    <th class="py-2 pr-2 text-center">ສະເລ່ຍລວມ</th>
+                                    <th class="py-2">ອ່ອນວິຊາ</th>
+                                </tr>
+                            </thead>
+                            <tbody id="homeroom-results-weak-tbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div id="teacher-home-subject-results-section" class="hidden bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-3">
             <h3 class="text-sm font-bold text-slate-600 uppercase tracking-wider">ສະຫຼຸບຜົນການຮຽນ ປະຈຳເດືອນ / ພາກຮຽນ / ໝົດປີ (ວິຊາທີ່ສອນ)</h3>
             <div class="flex flex-wrap gap-3 items-center">
@@ -2850,6 +2899,7 @@
                 subjectSection.classList.add('hidden');
             }
             renderSubjectResultsSection();
+            renderHomeroomResultsSection();
 
             // ອາຈານ ເວດ (KHU24) exclusive section, also shown to any isAdmin account —
             // everyone else keeps it hidden. See isAcademicOverseer().
@@ -3111,6 +3161,184 @@
                         legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
                         tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${ctx.parsed} ຄົນ (${pct(ctx.parsed)}%)` } }
                     }
+                }
+            });
+        }
+
+        // Homeroom teacher: overall results of their own class. Per student, each core
+        // subject's average for the period (same 6/8 subjects as the ສົ່ງວິຊາການ report;
+        // semesters/year use calculateAveragesFromGrades() via getSubjectResultAvg()),
+        // classified by classifyMonthlyByClassSummaryRow(). A student with no scores at all,
+        // or only some subjects entered and none below 7, is counted as 'none'
+        // (ຄະແນນຍັງບໍ່ຄົບ) instead of ຫຼຸດຄາດໝາຍ.
+        const HOMEROOM_RESULTS_EXCLUDED_CODES = ['KHU14']; // ອາຈານ ທອງທິບ: homeroom of every class
+        const homeroomResultsCategories = ['green', 'yellow', 'orange', 'red', 'none'];
+        // Same colors/labels as monthlyByClassSummaryColors/Labels (declared further down, so
+        // not referenced here at load time) plus 'none'.
+        const homeroomResultsColors = { green: '#0ca30c', yellow: '#fab219', orange: '#ec835a', red: '#d03b3b', none: '#94a3b8' };
+        const homeroomResultsLabels = { green: 'ນັກຮຽນເກັ່ງ', yellow: 'ນັກຮຽນກາງ', orange: 'ນັກຮຽນອ່ອນບາງວິຊາ', red: 'ສະເລ່ຍຫຼຸດຄາດໝາຍ', none: 'ຄະແນນຍັງບໍ່ຄົບ' };
+        function renderHomeroomResultsSection() {
+            const section = document.getElementById('teacher-home-homeroom-results-section');
+            const classKeys = currentTeacherAccount.homeroomClasses;
+            const show = classKeys.length > 0 && !HOMEROOM_RESULTS_EXCLUDED_CODES.includes(currentTeacherAccount.code);
+            section.classList.toggle('hidden', !show);
+            document.getElementById('homeroom-results-content').classList.add('hidden');
+            document.getElementById('homeroom-results-loading').classList.add('hidden');
+            if (!show) return;
+
+            const classSelect = document.getElementById('homeroom-results-class-select');
+            classSelect.innerHTML = classKeys.map(classKey => {
+                const cls = classList.find(c => c.classKey === classKey);
+                return `<option value="${classKey}">ຫ້ອງ ${cls ? cls.className : classKey}</option>`;
+            }).join('');
+            classSelect.classList.toggle('hidden', classKeys.length < 2);
+
+            document.getElementById('homeroom-results-period-select').innerHTML = '<option value="">ເລືອກຊ່ວງເວລາ</option>' +
+                monthlyByClassPeriods.map(p => `<option value="${p.key}">${p.label}</option>`).join('');
+        }
+        let homeroomResultsPieChart = null;
+        let homeroomResultsSubjectChart = null;
+        let homeroomResultsRequestId = 0;
+        function loadHomeroomResultsSummary() {
+            const classKey = document.getElementById('homeroom-results-class-select').value;
+            const periodKey = document.getElementById('homeroom-results-period-select').value;
+            const loadingEl = document.getElementById('homeroom-results-loading');
+            const contentEl = document.getElementById('homeroom-results-content');
+            contentEl.classList.add('hidden');
+            if (!classKey || !periodKey) {
+                loadingEl.classList.add('hidden');
+                return;
+            }
+            loadingEl.classList.remove('hidden');
+            loadingEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i><span>ກຳລັງໂຫຼດຂໍ້ມູນ...</span>';
+            const requestId = ++homeroomResultsRequestId;
+
+            Promise.all([
+                db.ref(`classes/${classKey}/students`).once('value'),
+                db.ref(`classes/${classKey}/grades`).once('value')
+            ]).then(([studentsSnap, gradesSnap]) => {
+                if (requestId !== homeroomResultsRequestId) return;
+                const rawStudents = studentsSnap.val();
+                const clsStudents = (rawStudents
+                    ? (Array.isArray(rawStudents) ? rawStudents.filter(Boolean) : Object.values(rawStudents))
+                    : [...(defaultRostersByClass[classKey] || [])]).sort((a, b) => a.id - b.id);
+                const clsGrades = gradesFromFirebase(gradesSnap.val());
+                const isGrade1Class = classKey === '11' || classKey === '12';
+                const classSubjects = getSubjectsForClass(classKey);
+                const subjectKeys = Object.keys(classSubjects).slice(0, isGrade1Class ? 6 : 8);
+
+                const rows = clsStudents.map(student => {
+                    const subjectAverages = subjectKeys.map(subKey =>
+                        getSubjectResultAvg(clsGrades[subKey] ? clsGrades[subKey][student.id] : null, periodKey));
+                    const known = subjectAverages.filter(v => v !== null);
+                    let category = classifyMonthlyByClassSummaryRow(subjectAverages);
+                    if (!known.length || category === 'plain') category = 'none';
+                    const finalAvg = known.length ? known.reduce((s, v) => s + v, 0) / subjectKeys.length : null;
+                    return { student, subjectAverages, finalAvg, category };
+                });
+                renderHomeroomResultsSummary(rows, subjectKeys, classSubjects);
+                loadingEl.classList.add('hidden');
+                contentEl.classList.remove('hidden');
+            }).catch(err => {
+                if (requestId !== homeroomResultsRequestId) return;
+                console.error('Homeroom results summary fetch failed:', err);
+                loadingEl.innerHTML = '❌ ໂຫຼດຂໍ້ມູນບໍ່ໄດ້: ' + (err && err.message ? err.message : err);
+            });
+        }
+        function renderHomeroomResultsSummary(rows, subjectKeys, classSubjects) {
+            const total = rows.length;
+            const pct = (n) => total > 0 ? ((n / total) * 100).toFixed(2) : '0.00';
+            const counts = {};
+            const femaleCounts = {};
+            homeroomResultsCategories.forEach(cat => {
+                const catRows = rows.filter(r => r.category === cat);
+                counts[cat] = catRows.length;
+                femaleCounts[cat] = catRows.filter(r => isFemaleStudent(r.student)).length;
+            });
+
+            document.getElementById('homeroom-results-stats').innerHTML = homeroomResultsCategories.map(cat => `
+                <div class="bg-white border border-slate-200 rounded-xl p-3 text-center">
+                    <div class="w-3 h-3 rounded-full mx-auto mb-1" style="background:${homeroomResultsColors[cat]}"></div>
+                    <div class="text-2xl font-bold text-slate-800">${counts[cat]}</div>
+                    <div class="text-[11px] text-slate-500 leading-tight">${homeroomResultsLabels[cat]}</div>
+                    <div class="text-[11px] font-semibold" style="color:${homeroomResultsColors[cat]}">${pct(counts[cat])}%</div>
+                    <div class="text-[10px] text-slate-400 mt-0.5">(ຍິງ ${femaleCounts[cat]} ຄົນ)</div>
+                </div>
+            `).join('');
+
+            document.getElementById('homeroom-results-pie-details').innerHTML = homeroomResultsCategories.map(cat => `
+                <div class="flex items-center justify-between gap-2">
+                    <span class="flex items-center gap-1.5 text-slate-600"><span class="w-2.5 h-2.5 rounded-full inline-block" style="background:${homeroomResultsColors[cat]}"></span>${homeroomResultsLabels[cat]}</span>
+                    <span class="font-semibold" style="color:${homeroomResultsColors[cat]}">${counts[cat]} ຄົນ (${pct(counts[cat])}%)</span>
+                </div>
+            `).join('') + `
+                <div class="flex items-center justify-between gap-2 pt-1 mt-1 border-t border-slate-200 font-semibold text-slate-700">
+                    <span>ນັກຮຽນທັງໝົດ</span><span>${total} ຄົນ (100%)</span>
+                </div>
+            `;
+
+            // Weak = ອ່ອນບາງວິຊາ + ຫຼຸດຄາດໝາຍ; for each, the subjects below 5 and those not yet scored.
+            const weakRows = rows.filter(r => r.category === 'orange' || r.category === 'red');
+            const weakPerSubject = subjectKeys.map((_, i) => rows.filter(r => r.subjectAverages[i] !== null && r.subjectAverages[i] < 5).length);
+            const tbody = document.getElementById('homeroom-results-weak-tbody');
+            tbody.innerHTML = weakRows.length ? weakRows.map((r, idx) => {
+                const chips = subjectKeys.map((subKey, i) => {
+                    const v = r.subjectAverages[i];
+                    const chipClass = v === null ? 'bg-slate-50 text-slate-400 border-slate-200'
+                        : v < 5 ? 'bg-rose-50 text-rose-700 border-rose-200 font-semibold'
+                        : 'bg-slate-50 text-slate-600 border-slate-200';
+                    return `<span class="inline-block border rounded-md px-1.5 py-0.5 text-[11px] mr-1 mb-1 ${chipClass}">${classSubjects[subKey]}: ${v === null ? '-' : v.toFixed(2)}</span>`;
+                }).join('');
+                const weakSubjects = subjectKeys.filter((_, i) => r.subjectAverages[i] !== null && r.subjectAverages[i] < 5)
+                    .map(subKey => `${classSubjects[subKey]} (${r.subjectAverages[subjectKeys.indexOf(subKey)].toFixed(2)})`);
+                const missingSubjects = subjectKeys.filter((_, i) => r.subjectAverages[i] === null).map(subKey => classSubjects[subKey]);
+                const reasonParts = [];
+                if (weakSubjects.length) reasonParts.push(weakSubjects.join(', '));
+                if (missingSubjects.length) reasonParts.push(`<span class="text-slate-400">ຍັງບໍ່ມີຄະແນນ: ${missingSubjects.join(', ')}</span>`);
+                return `
+                    <tr class="border-b border-slate-100 last:border-0 align-top">
+                        <td class="py-2 pr-2 text-slate-500">${idx + 1}</td>
+                        <td class="py-2 pr-2 text-slate-700 whitespace-nowrap">${r.student.name}${r.student.nickname ? ` <span class="text-slate-400 text-xs">(${r.student.nickname})</span>` : ''}</td>
+                        <td class="py-2 pr-2 text-xs font-semibold whitespace-nowrap" style="color:${homeroomResultsColors[r.category]}">${homeroomResultsLabels[r.category]}</td>
+                        <td class="py-2 pr-2">${chips}</td>
+                        <td class="py-2 pr-2 text-center font-bold" style="color:${homeroomResultsColors[r.category]}">${r.finalAvg === null ? '-' : r.finalAvg.toFixed(2)}</td>
+                        <td class="py-2 text-xs text-rose-700">${reasonParts.join('<br>') || 'ສະເລ່ຍລວມຕ່ຳກວ່າ 5'}</td>
+                    </tr>
+                `;
+            }).join('') : '<tr><td colspan="6" class="py-3 text-center text-slate-400">ບໍ່ມີນັກຮຽນອ່ອນໃນຊ່ວງເວລານີ້</td></tr>';
+
+            if (homeroomResultsPieChart) homeroomResultsPieChart.destroy();
+            if (homeroomResultsSubjectChart) homeroomResultsSubjectChart.destroy();
+
+            homeroomResultsPieChart = new Chart(document.getElementById('homeroom-results-pie-chart').getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    labels: homeroomResultsCategories.map(c => homeroomResultsLabels[c]),
+                    datasets: [{ data: homeroomResultsCategories.map(c => counts[c]), backgroundColor: homeroomResultsCategories.map(c => homeroomResultsColors[c]), borderColor: '#ffffff', borderWidth: 2 }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+                        tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${ctx.parsed} ຄົນ (${pct(ctx.parsed)}%)` } }
+                    }
+                }
+            });
+
+            homeroomResultsSubjectChart = new Chart(document.getElementById('homeroom-results-subject-chart').getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: subjectKeys.map(subKey => classSubjects[subKey]),
+                    datasets: [{ label: 'ນັກຮຽນທີ່ອ່ອນວິຊານີ້ (ຄົນ)', data: weakPerSubject, backgroundColor: homeroomResultsColors.red, borderRadius: 6, maxBarThickness: 40 }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { callbacks: { label: (ctx) => `${ctx.parsed.x} ຄົນ (${pct(ctx.parsed.x)}%)` } }
+                    },
+                    scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
                 }
             });
         }
