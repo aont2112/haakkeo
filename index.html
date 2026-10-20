@@ -269,6 +269,52 @@
             <div id="teacher-home-subject-buttons" class="flex flex-wrap gap-3"></div>
         </div>
 
+        <!-- Every subject teacher: monthly results summary for the subject(s) they teach,
+             across all their classes. Per student, that subject's monthly average:
+             >= 7 ເກັ່ງ, 5 to < 7 ກາງ, < 5 ຕົກ. Read-only one-time reads of only the
+             roster + grades/{subject} that database.rules.json already lets them read.
+             Rendered by renderSubjectResultsSection() / loadSubjectResultsSummary(). -->
+        <div id="teacher-home-subject-results-section" class="hidden bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-3">
+            <h3 class="text-sm font-bold text-slate-600 uppercase tracking-wider">ສະຫຼຸບຜົນການຮຽນປະຈຳເດືອນ (ວິຊາທີ່ສອນ)</h3>
+            <div class="flex flex-wrap gap-3 items-center">
+                <select id="subject-results-subject-select" onchange="loadSubjectResultsSummary()"
+                        class="bg-slate-100 border border-slate-200 text-slate-700 px-3 py-2 rounded-lg text-sm font-semibold"></select>
+                <select id="subject-results-period-select" onchange="loadSubjectResultsSummary()"
+                        class="bg-slate-100 border border-slate-200 text-slate-700 px-3 py-2 rounded-lg text-sm font-semibold"></select>
+            </div>
+            <p class="text-xs text-slate-500">ເກັ່ງ: ຄະແນນສະເລ່ຍວິຊາ 7 ຂຶ້ນໄປ · ກາງ: 5 ຫາ ຕ່ຳກວ່າ 7 · ຕົກ: ຕ່ຳກວ່າ 5</p>
+            <div id="subject-results-loading" class="hidden text-xs text-slate-400 flex items-center gap-2"></div>
+            <div id="subject-results-content" class="hidden space-y-4">
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3" id="subject-results-stats"></div>
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    <div class="lg:col-span-2 bg-slate-50 rounded-xl p-4 border border-slate-100">
+                        <p class="text-xs font-semibold text-slate-600 mb-2 text-center">ຈຳນວນນັກຮຽນແຕ່ລະຫ້ອງ</p>
+                        <canvas id="subject-results-bar-chart" height="220"></canvas>
+                    </div>
+                    <div class="bg-slate-50 rounded-xl p-4 border border-slate-100">
+                        <p class="text-xs font-semibold text-slate-600 mb-2 text-center">ລວມທຸກຫ້ອງ</p>
+                        <canvas id="subject-results-pie-chart" height="220"></canvas>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-center">
+                        <thead>
+                            <tr class="text-xs text-slate-500 border-b border-slate-200">
+                                <th class="py-2 text-left">ຫ້ອງ</th>
+                                <th class="py-2">ນັກຮຽນ</th>
+                                <th class="py-2">ເກັ່ງ</th>
+                                <th class="py-2">ກາງ</th>
+                                <th class="py-2">ຕົກ</th>
+                                <th class="py-2">ຍັງບໍ່ມີຄະແນນ</th>
+                                <th class="py-2">ສະເລ່ຍຫ້ອງ</th>
+                            </tr>
+                        </thead>
+                        <tbody id="subject-results-tbody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
         <!-- Admin-only (isAdmin: true accounts, see isAcademicOverseer()): every teacher's
              login code + Firebase Authentication email. Passwords are never shown (Firebase
              Auth doesn't reveal them); reset one with firebase/setup-teachers.mjs --reset.
@@ -2782,6 +2828,7 @@
             } else {
                 subjectSection.classList.add('hidden');
             }
+            renderSubjectResultsSection();
 
             // ອາຈານ ເວດ (KHU24) exclusive section, also shown to any isAdmin account —
             // everyone else keeps it hidden. See isAcademicOverseer().
@@ -2808,6 +2855,157 @@
             } else {
                 adminAccountsSection.classList.add('hidden');
             }
+        }
+
+        // Every subject teacher: "ສະຫຼຸບຜົນການຮຽນປະຈຳເດືອນ" for the subject(s) they teach.
+        // One subject at a time (a teacher with several subjects picks from the dropdown),
+        // one monthly period at a time, across every class they teach that subject in.
+        const subjectResultsColors = { good: '#0ca30c', mid: '#fab219', fail: '#d03b3b', none: '#94a3b8' };
+        const subjectResultsLabels = { good: 'ເກັ່ງ (7 ຂຶ້ນໄປ)', mid: 'ກາງ (5 - ຕ່ຳກວ່າ 7)', fail: 'ຕົກ (ຕ່ຳກວ່າ 5)', none: 'ຍັງບໍ່ມີຄະແນນ' };
+        function classifySubjectResult(avg) {
+            if (avg === null) return 'none';
+            if (avg >= 7) return 'good';
+            if (avg >= 5) return 'mid';
+            return 'fail';
+        }
+        function renderSubjectResultsSection() {
+            const section = document.getElementById('teacher-home-subject-results-section');
+            const roles = currentTeacherAccount.subjectRoles;
+            section.classList.toggle('hidden', !roles.length);
+            document.getElementById('subject-results-content').classList.add('hidden');
+            document.getElementById('subject-results-loading').classList.add('hidden');
+            if (!roles.length) return;
+
+            const subjectSelect = document.getElementById('subject-results-subject-select');
+            const subjectKeys = [...new Set(roles.map(r => r.subject))];
+            subjectSelect.innerHTML = subjectKeys.map(subKey => {
+                const firstRole = roles.find(r => r.subject === subKey);
+                const label = getSubjectsForClass(firstRole.classKey)[subKey] || subKey;
+                return `<option value="${subKey}">${label}</option>`;
+            }).join('');
+            subjectSelect.classList.toggle('hidden', subjectKeys.length < 2);
+
+            const periodSelect = document.getElementById('subject-results-period-select');
+            periodSelect.innerHTML = '<option value="">ເລືອກເດືອນ</option>' + monthlyByClassPeriods
+                .filter(p => MONTHLY_PERIODS.includes(p.key))
+                .map(p => `<option value="${p.key}">${p.label}</option>`).join('');
+        }
+        let subjectResultsBarChart = null;
+        let subjectResultsPieChart = null;
+        let subjectResultsRequestId = 0;
+        function loadSubjectResultsSummary() {
+            const subjectKey = document.getElementById('subject-results-subject-select').value;
+            const periodKey = document.getElementById('subject-results-period-select').value;
+            const loadingEl = document.getElementById('subject-results-loading');
+            const contentEl = document.getElementById('subject-results-content');
+            contentEl.classList.add('hidden');
+            if (!subjectKey || !periodKey) {
+                loadingEl.classList.add('hidden');
+                return;
+            }
+            loadingEl.classList.remove('hidden');
+            loadingEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i><span>ກຳລັງໂຫຼດຂໍ້ມູນ...</span>';
+            // Ignore a slow earlier fetch that finishes after the teacher changed the selection.
+            const requestId = ++subjectResultsRequestId;
+
+            const classKeys = currentTeacherAccount.subjectRoles.filter(r => r.subject === subjectKey).map(r => r.classKey);
+            const perClassFetches = classKeys.map(classKey => Promise.all([
+                db.ref(`classes/${classKey}/students`).once('value'),
+                db.ref(`classes/${classKey}/grades/${subjectKey}`).once('value')
+            ]).then(([studentsSnap, gradesSnap]) => {
+                const rawStudents = studentsSnap.val();
+                const clsStudents = rawStudents
+                    ? (Array.isArray(rawStudents) ? rawStudents.filter(Boolean) : Object.values(rawStudents))
+                    : (defaultRostersByClass[classKey] || []);
+                const subjectGrades = gradesFromFirebase({ [subjectKey]: gradesSnap.val() })[subjectKey] || {};
+                const counts = { good: 0, mid: 0, fail: 0, none: 0 };
+                let sum = 0;
+                clsStudents.forEach(student => {
+                    const avg = getPeriodAvg(subjectGrades[student.id] ? subjectGrades[student.id][periodKey] : null, periodKey);
+                    counts[classifySubjectResult(avg)]++;
+                    if (avg !== null) sum += avg;
+                });
+                const scored = counts.good + counts.mid + counts.fail;
+                const cls = classList.find(c => c.classKey === classKey);
+                return { className: cls ? cls.className : classKey, total: clsStudents.length, counts, classAvg: scored ? sum / scored : null };
+            }));
+
+            Promise.all(perClassFetches).then(rows => {
+                if (requestId !== subjectResultsRequestId) return;
+                renderSubjectResultsSummary(rows);
+                loadingEl.classList.add('hidden');
+                contentEl.classList.remove('hidden');
+            }).catch(err => {
+                if (requestId !== subjectResultsRequestId) return;
+                console.error('Subject results summary fetch failed:', err);
+                loadingEl.innerHTML = '❌ ໂຫຼດຂໍ້ມູນບໍ່ໄດ້: ' + (err && err.message ? err.message : err);
+            });
+        }
+        function renderSubjectResultsSummary(rows) {
+            const categories = ['good', 'mid', 'fail', 'none'];
+            const totals = { good: 0, mid: 0, fail: 0, none: 0 };
+            rows.forEach(r => categories.forEach(c => { totals[c] += r.counts[c]; }));
+            const totalStudents = rows.reduce((s, r) => s + r.total, 0);
+            const pct = (n) => totalStudents > 0 ? ((n / totalStudents) * 100).toFixed(2) : '0.00';
+
+            document.getElementById('subject-results-stats').innerHTML = categories.map(cat => `
+                <div class="bg-white border border-slate-200 rounded-xl p-3 text-center">
+                    <div class="w-3 h-3 rounded-full mx-auto mb-1" style="background:${subjectResultsColors[cat]}"></div>
+                    <div class="text-2xl font-bold text-slate-800">${totals[cat]}</div>
+                    <div class="text-[11px] text-slate-500 leading-tight">${subjectResultsLabels[cat]}</div>
+                    <div class="text-[11px] font-semibold" style="color:${subjectResultsColors[cat]}">${pct(totals[cat])}%</div>
+                </div>
+            `).join('');
+
+            document.getElementById('subject-results-tbody').innerHTML = rows.map(r => `
+                <tr class="border-b border-slate-100 last:border-0">
+                    <td class="py-2 text-left font-semibold text-slate-700">${r.className}</td>
+                    <td class="py-2 text-slate-600">${r.total}</td>
+                    <td class="py-2 font-semibold" style="color:${subjectResultsColors.good}">${r.counts.good}</td>
+                    <td class="py-2 font-semibold" style="color:${subjectResultsColors.mid}">${r.counts.mid}</td>
+                    <td class="py-2 font-semibold" style="color:${subjectResultsColors.fail}">${r.counts.fail}</td>
+                    <td class="py-2 text-slate-400">${r.counts.none}</td>
+                    <td class="py-2 text-slate-700">${r.classAvg === null ? '-' : r.classAvg.toFixed(2)}</td>
+                </tr>
+            `).join('');
+
+            if (subjectResultsBarChart) subjectResultsBarChart.destroy();
+            if (subjectResultsPieChart) subjectResultsPieChart.destroy();
+
+            // Stacked bar: one bar per class, split ເກັ່ງ/ກາງ/ຕົກ (students without a score
+            // yet only appear in the tiles/table, so the bars show actual results).
+            subjectResultsBarChart = new Chart(document.getElementById('subject-results-bar-chart').getContext('2d'), {
+                type: 'bar',
+                data: {
+                    labels: rows.map(r => r.className),
+                    datasets: ['good', 'mid', 'fail'].map(cat => ({
+                        label: subjectResultsLabels[cat],
+                        data: rows.map(r => r.counts[cat]),
+                        backgroundColor: subjectResultsColors[cat],
+                        maxBarThickness: 48
+                    }))
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } },
+                    scales: { x: { stacked: true }, y: { stacked: true, beginAtZero: true, ticks: { precision: 0 } } }
+                }
+            });
+
+            subjectResultsPieChart = new Chart(document.getElementById('subject-results-pie-chart').getContext('2d'), {
+                type: 'doughnut',
+                data: {
+                    labels: categories.map(c => subjectResultsLabels[c]),
+                    datasets: [{ data: categories.map(c => totals[c]), backgroundColor: categories.map(c => subjectResultsColors[c]), borderColor: '#ffffff', borderWidth: 2 }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } },
+                        tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${ctx.parsed} ຄົນ (${pct(ctx.parsed)}%)` } }
+                    }
+                }
+            });
         }
 
         // isAdmin-only: lists every login code in teacherAccounts order with its name and
