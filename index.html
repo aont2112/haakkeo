@@ -5221,7 +5221,7 @@
                     hw: s2State.hw,
                     conduct: s2State.conduct, // Last monthly state carries final year conduct
                     deducted: totalDeducted,
-                    comment: studentBehaviorMetadata[studentId].yearComment !== undefined ? studentBehaviorMetadata[studentId].yearComment : (s2State.comment || "ຜົນການຮຽນຕະຫຼອດປີມີຄວາມສະໝໍ່າສະເໝີ.")
+                    comment: studentBehaviorMetadata[studentId].yearComment !== undefined ? studentBehaviorMetadata[studentId].yearComment : (getEffectiveTeacherComment(studentId, 's2') || "ຜົນການຮຽນຕະຫຼອດປີມີຄວາມສະໝໍ່າສະເໝີ.")
                 };
             }
 
@@ -5254,6 +5254,20 @@
             // Always update calculations
             recalculateConductScores(studentId);
             return studentBehaviorMetadata[studentId][period];
+        }
+
+        // The homeroom teacher's comment carries forward: a period whose own comment is
+        // still empty shows the nearest earlier period's comment (m9 -> m10 -> ...). Only
+        // what is typed into a period is saved to that period, so editing m10 never
+        // changes m9.
+        function getEffectiveTeacherComment(studentId, period) {
+            const chronologicalPeriods = ['m9', 'm10', 'm11', 'm12', 's1', 'm2', 'm3', 'm4', 's2'];
+            const studentData = studentBehaviorMetadata[studentId] || {};
+            for (let i = chronologicalPeriods.indexOf(period); i >= 0; i--) {
+                const record = studentData[chronologicalPeriods[i]];
+                if (record && record.comment && record.comment.trim() !== '') return record.comment;
+            }
+            return '';
         }
 
         // Update single behavior field and recalculate chains
@@ -6636,7 +6650,7 @@
             document.getElementById('card-deducted-score').innerText = behavior.deducted;
 
             const commentArea = document.getElementById('card-teacher-comment');
-            commentArea.value = behavior.comment;
+            commentArea.value = selectedPeriod === 'year' ? behavior.comment : getEffectiveTeacherComment(student.id, selectedPeriod);
             
             // Adjust comment textbox interactiveness depending on credentials
             const isHomeroom = hasBehaviorEditPrivilege();
