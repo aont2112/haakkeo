@@ -2787,6 +2787,7 @@
             currentTeacherAccount = Object.assign({ code }, teacherAccounts[code]);
             currentUserRole = null;
             document.getElementById('view-login').classList.add('hidden');
+            runPendingGradeImports(currentTeacherAccount);
 
             let cachedRole = null;
             try { cachedRole = JSON.parse(sessionStorage.getItem('gradebook_active_role')); } catch (e) { cachedRole = null; }
@@ -4920,6 +4921,98 @@
                     }).catch(callback);
                 }).catch(callback);
             }).catch(callback);
+        }
+
+        // One-time import: ພາສາຢີ່ປຸ່ນ ເດືອນ 10 (m10) scores for ມ.5–ມ.7, from the Japanese
+        // teacher's Excel file (japan_language_M5-M7_month10.xlsx, column "ຄະແນນປະຈຳເດືອນ").
+        // Students left blank in that file are not listed here and stay blank.
+        // Rows are matched to the LIVE roster by name (see gradeImportNameKey), never by row
+        // number, because the Excel order and the stored student ids differ.
+        // Runs when the Japanese teacher (KHU25) or an admin signs in. A class is only
+        // imported while its m10 Japanese column is still completely empty, so this never
+        // overwrites scores typed in the app and never re-fills a score cleared later.
+        const PENDING_GRADE_IMPORTS = [{
+            label: 'ພາສາຢີ່ປຸ່ນ ເດືອນ 10',
+            subject: 'japanese',
+            period: 'm10',
+            scoresByClass: {
+                '51': [["ນາງ ການຈະນາ ມະຫາວົງ", 8], ["ນາງ ຄອນສະຫວັນ ແສງຄໍາເພັງໄຊ", 9], ["ນາງ ສຸດາວັນ ວັນທານະວົງ", 8], ["ທ້າວ ທະນະກອນ ແກ້ວວິໄລ", 10], ["ທ້າວ ທະວີໄຊ ພົມມີໄຊ", 9], ["ທ້າວ ບົວສອນ ທອງມະນີວົງ", 8], ["ທ້າວ ບໍດຣີນ ດາວວິໄລ", 7], ["ນາງ ພອນສະຫວັນ ຂຸນພັກດີ", 7], ["ນາງ ພອນນິຕາ ຈິດທິວົງ", 8], ["ນາງ ມະລິສາ ພົມມະວັນ", 8], ["ນາງ ວິດາວັນ ນິລະວັນ", 8], ["ທ້າວ ອານັນດາ ທິບວົງໄຊ", 7], ["ນາງ ອາລິສາ ຣາຊະຈັກ", 7], ["ທ້າວ ອິດທິສັກ ວັນນະຫົງ", 7]],
+                '52': [["ນາງ ຈຸຣາພອນ ບຸນເລີດ", 5], ["ທ້າວ ສິດທິພົນ ພັນທະວົງ", 8], ["ທ້າວ ສຸກປະເສີດ ຊາບັນດິດ", 9], ["ທ້າວ ສຸກພະໂຊກ ສຸພະວົງ", 8], ["ທ້າວ ໄຊສະຫວ່າງ ບົວພັນ", 8], ["ທ້າວ ໄຊຍະກອນ ຊານຸບານ", 7], ["ນາງ ທິດາ ແສງດາລາ", 9], ["ນາງ ທິບພະເກສອນ ປະຖັມມະວົງ", 8], ["ນາງ ນິຊາດາ ພັນທະວົງ", 10], ["ນາງ ນິນທິດາ ລັດຕະນະ", 6], ["ນາງ ປະພາວະລິນ ສີສະວາ", 9], ["ນາງ ປະດາພອນ ວິນາວົງ", 6], ["ທ້າວ ປານຄໍາ ບົວລະພັນ", 6], ["ນາງ ເມຣິດາ ທະວີໄຊ", 7], ["ນາງ ອາທິສາ ນີຣະໄຊຍ໌", 10], ["ນາງ ອາລິສາ ຈະເລີນພອນ", 7]],
+                '61': [["ທ້າວ ກຽດຕິສັກ ຫຼອມທອງດີ", 7], ["ນາງ ສຸດທິດາ ສຸວັນນະວົງ", 7], ["ນາງ ທິດາທິບ ວົງລັດສະໝີ", 9], ["ທ້າວ ທະວີສຸກ ແສງອ່ອນແກ້ວ", 6], ["ທ້າວ ພັດທະນະພອນ ແກ້ວມະສອນ", 9], ["ທ້າວ ມະນີໂຊກ ລໍວັນໄຊ", 6]],
+                '62': [["ທ້າວ ໂກ ຫັງ ຖັງ", 8], ["ທ້າວ ຄັນໂຕ່ນ່າ ຈອມມະນີວົງ", 6], ["ນາງ ຈິນດາສອນ ແສນທະວີສຸກ", 8], ["ນາງ ສີສຸດາ ວັນທະນາວົງ", 8], ["ທ້າວ ສະຕິທໍາ ເລົາໂລ", 7], ["ນາງ ນະລິນຣະດາ ກົມມະເມືອງ", 8], ["ທ້າວ ພຸດທະສອນ ປະຖັມມະວົງ", 6], ["ນາງ ມະນີຣັດ ບູລົມ", 7], ["ທ້າວ ວິພົບ ທໍາມະວົງສາ", 10], ["ທ້າວ ອິນທະລາ ໝື່ນມະນີ", 7]],
+                '71': [["ທ້າວ ກ້ອງຟ້າ ແກ້ວປະເສີດ", 6], ["ທ້າວ ໄກສອນ ທອງມະນີວົງ", 8], ["ທ້າວ ເດຊາພົນ ສົມສະນິດ", 8], ["ທ້າວ ທັນສະນິດ ອິນສີຊຽງໃໝ່", 2], ["ນາງ ນໍ້າໜຶ່ງ ພິລາຈັນ", 4], ["ທ້າວ ພູຄໍາ ແສງດາລາ", 7], ["ນາງ ລະລິດາ ເພັດຊະລາດ", 7], ["ນາງ ອະກິໂນະ ວິຊາປຣາ ຄາວາມູຣະ", 6], ["ນາງ ວັນຣິນດາ ນິລະວັນ", 5], ["ນາງ ອາລິສາ ຄໍາສົງກາ", 7]],
+                '72': [["ທ້າວ ແກ້ວເທບພະໄຊ ສີສົມບັດ", 8], ["ນາງ ກະມົນທິບ ສີພັນທອງ", 8], ["ນາງ ສຸທິດາ ພິມເມືອງ", 9], ["ທ້າວ ສຸລິຍະຈັນແສງ ສຣິດທິຣາຊ", 2], ["ທ້າວ ໄຊສົມພອນ ແສນບຸດຕະລາດ", 2], ["ທ້າວ ໄຊຊະນະ ວໍລະວົງ", 5], ["ນາງ ດາວຊິນີ ຣັດຕະນະ", 4], ["ນາງ ນຸ່ນເທວາ ແກ້ວວົງໄຊ", 9], ["ນາງ ລັດສະໝີ ສຸວັນນະບົວທອງ", 3], ["ນາງ ແອນນິສາ ຣາຊຈັກ", 5]],
+            }
+        }];
+
+        // "ທ້າວ ໄຊ​ສົມ​ພອນ  ຈັນ​ທາ​ພອນ" and "ທ ໄຊສົມພອນ ຈັນທາພອນ" -> same key: Lao letters only
+        // (drops Japanese/Latin nicknames, zero-width spaces), no title prefix, no spaces,
+        // and no tone marks / ໍ (typed in either order in different files).
+        function gradeImportNameKey(name) {
+            let s = String(name || '').replace(/[^຀-໿\s]/g, '').trim();
+            s = s.replace(/^(ທ້າວ|ທາວ|ນາງ|ທ)\s+/, '');
+            return s.replace(/[\s່-ໍ]/g, '');
+        }
+
+        function runPendingGradeImports(account) {
+            if (!account) return;
+            PENDING_GRADE_IMPORTS.forEach(job => {
+                const classKeys = Object.keys(job.scoresByClass).filter(classKey =>
+                    account.isAdmin === true ||
+                    (account.homeroomClasses || []).includes(classKey) ||
+                    (account.subjectRoles || []).some(r => r.classKey === classKey && r.subject === job.subject));
+                if (!classKeys.length) return;
+
+                Promise.all(classKeys.map(classKey => {
+                    const subjectRef = db.ref(`classes/${classKey}/grades/${job.subject}`);
+                    return Promise.all([subjectRef.once('value'), db.ref(`classes/${classKey}/students`).once('value')])
+                        .then(([gradesSnap, studentsSnap]) => {
+                            const existing = gradesSnap.val() || {};
+                            const alreadyEntered = Object.values(existing).some(s => {
+                                const v = s && s[job.period] ? s[job.period].exam : '';
+                                return v !== undefined && v !== null && String(v).trim() !== '';
+                            });
+                            if (alreadyEntered) return { classKey, imported: 0, unmatched: [] };
+
+                            const raw = studentsSnap.val();
+                            const roster = raw ? (Array.isArray(raw) ? raw.filter(Boolean) : Object.values(raw)) : [];
+                            const byKey = {};
+                            roster.forEach(st => {
+                                const k = gradeImportNameKey(st.name);
+                                (byKey[k] = byKey[k] || []).push(st);
+                            });
+
+                            const updates = {};
+                            const unmatched = [];
+                            job.scoresByClass[classKey].forEach(([name, score]) => {
+                                const hits = byKey[gradeImportNameKey(name)] || [];
+                                if (hits.length !== 1) { unmatched.push(name); return; }
+                                const base = `id_${hits[0].id}/${job.period}`;
+                                updates[`${base}/exam`] = score;
+                                // Exam-only subject: ໃນຫ້ອງ mirrors ເສັງ (same as updateScore()).
+                                if (EXAM_ONLY_SUBJECTS.includes(job.subject)) updates[`${base}/class`] = score;
+                            });
+                            const imported = Object.keys(updates).filter(p => p.endsWith('/exam')).length;
+                            if (!imported) return { classKey, imported: 0, unmatched };
+                            return subjectRef.update(updates).then(() => ({ classKey, imported, unmatched }));
+                        })
+                        .catch(err => {
+                            console.error(`Grade import failed (${job.label}, ${classKey}):`, err);
+                            return { classKey, imported: 0, unmatched: [], failed: true };
+                        });
+                })).then(results => {
+                    const imported = results.reduce((n, r) => n + r.imported, 0);
+                    const unmatched = [];
+                    results.forEach(r => r.unmatched.forEach(n => unmatched.push(`${r.classKey[0]}/${r.classKey[1]}: ${n}`)));
+                    const failed = results.filter(r => r.failed).map(r => `${r.classKey[0]}/${r.classKey[1]}`);
+                    if (imported) showToast(`📥 ນຳເຂົ້າຄະແນນ${job.label} ແລ້ວ ${imported} ຄົນ`, "text-emerald-400", 5000);
+                    if (unmatched.length) {
+                        console.warn(`Grade import (${job.label}) — names not found in the roster:`, unmatched);
+                        setTimeout(() => showToast(`⚠️ ${job.label}: ບໍ່ພົບຊື່ໃນລາຍຊື່ຫ້ອງ ${unmatched.length} ຄົນ — ${unmatched.join(', ')}`, "text-amber-400", 15000), imported ? 5200 : 0);
+                    }
+                    if (failed.length) console.warn(`Grade import (${job.label}) failed for:`, failed);
+                });
+            });
         }
 
         // Points the four data refs at this class's namespaced path and starts listening.
