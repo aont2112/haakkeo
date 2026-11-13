@@ -406,6 +406,24 @@
             <p class="text-xs text-slate-500">ລະຫັດຜ່ານເກັບໄວ້ໃນ Firebase Authentication ເທົ່ານັ້ນ ແລະ ເບິ່ງບໍ່ໄດ້. ຖ້າຄູລືມລະຫັດຜ່ານ, ໃຫ້ແລ່ນ <code class="font-mono">node firebase/setup-teachers.mjs --reset KHUxx</code> ເພື່ອອອກລະຫັດໃໝ່.</p>
         </div>
 
+        <!-- ວິຊາການ (KHU24) + admin (isAcademicOverseer): one PDF with the "ຄະແນນຕິດປື້ມຟ້າ"
+             ledger of every class for the ticked months (one page per class per month).
+             Shown/hidden in renderTeacherHome(); built by downloadAllClassesBlueBookPdf(). -->
+        <div id="teacher-home-bluebook-all-section" class="hidden bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-3">
+            <h3 class="text-sm font-bold text-slate-600 uppercase tracking-wider flex items-center gap-2">
+                <i class="fa-solid fa-book text-blue-600"></i> ດາວໂຫຼດຄະແນນຕິດປື້ມຟ້າ ທຸກຫ້ອງ (PDF)
+            </h3>
+            <p class="text-xs text-slate-500">ເລືອກເດືອນ ແລ້ວກົດດາວໂຫຼດ — ໄດ້ PDF ໄຟລ໌ດຽວ, ຫ້ອງລະໜ້າ (ມ.1/1 → ມ.7/2) ຮຽງຕາມເດືອນ.</p>
+            <div id="bluebook-all-periods" class="flex flex-wrap gap-2"></div>
+            <div class="flex flex-wrap items-center gap-3">
+                <button type="button" id="bluebook-all-download-btn" onclick="downloadAllClassesBlueBookPdf()"
+                        class="bg-rose-600 hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold px-4 py-2 rounded-xl transition shadow-sm flex items-center gap-1.5">
+                    <i class="fa-solid fa-file-pdf"></i><span>ດາວໂຫຼດ PDF ທຸກຫ້ອງ</span>
+                </button>
+                <span id="bluebook-all-status" class="text-xs text-slate-500"></span>
+            </div>
+        </div>
+
         <!-- ອາຈານ ເວດ (KHU24) exclusive: monthly grades across every class. Gated in
              renderTeacherHome() by currentTeacherAccount.code === 'KHU24' only — no other
              teacher account should ever see this section. Content/behavior to be added
@@ -2916,6 +2934,13 @@
             } else {
                 monthlyByClassSection.classList.add('hidden');
                 submissionTrackingSection.classList.add('hidden');
+            }
+            const blueBookAllSection = document.getElementById('teacher-home-bluebook-all-section');
+            if (isAcademicOverseer(currentTeacherAccount)) {
+                blueBookAllSection.classList.remove('hidden');
+                renderBlueBookAllPeriods();
+            } else {
+                blueBookAllSection.classList.add('hidden');
             }
 
             // isAdmin-only: every teacher's login code + current password (see
@@ -6062,11 +6087,16 @@
         // coding. Subject headers are rotated vertically to match the school's paper ledger.
 
         function openBlueBookReport() {
-            const subjectKeys = Object.keys(subjects);
             const pName = document.getElementById('monthly-period-title').innerText;
             document.getElementById('bluebook-period-label').innerText = pName;
+            renderBlueBookGrid(document.getElementById('bluebook-table'), subjects, students, grades, selectedPeriod);
+            document.getElementById('view-bluebook-modal').classList.remove('hidden');
+        }
 
-            const container = document.getElementById('bluebook-table');
+        // Fills `container` with the ledger grid for one class + period. Shared by the
+        // per-class modal above and the all-classes PDF (downloadAllClassesBlueBookPdf).
+        function renderBlueBookGrid(container, subjects, students, grades, selectedPeriod) {
+            const subjectKeys = Object.keys(subjects);
 
             // Fixed pixel widths for every column. Using a CSS Grid (rather than a
             // <table> with table-layout:fixed) is deliberate: html2canvas does not
@@ -6139,7 +6169,116 @@
             });
 
             container.innerHTML = html;
-            document.getElementById('view-bluebook-modal').classList.remove('hidden');
+        }
+
+        // --- ວິຊາການ/admin: "ຄະແນນຕິດປື້ມຟ້າ" of every class in one PDF ------------------------
+        const BLUEBOOK_ALL_PERIODS = [
+            { key: 'm9', label: 'ເດືອນ 9' }, { key: 'm10', label: 'ເດືອນ 10' },
+            { key: 'm11', label: 'ເດືອນ 11' }, { key: 'm12', label: 'ເດືອນ 12' },
+            { key: 'm2', label: 'ເດືອນ 2' }, { key: 'm3', label: 'ເດືອນ 3' }, { key: 'm4', label: 'ເດືອນ 4' }
+        ];
+        let blueBookAllSelected = new Set();
+        let blueBookAllBusy = false;
+
+        function renderBlueBookAllPeriods() {
+            const box = document.getElementById('bluebook-all-periods');
+            box.innerHTML = '';
+            BLUEBOOK_ALL_PERIODS.forEach(p => {
+                const on = blueBookAllSelected.has(p.key);
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = on
+                    ? 'px-3 py-1.5 rounded-lg text-sm font-semibold bg-blue-600 text-white border border-blue-600 transition'
+                    : 'px-3 py-1.5 rounded-lg text-sm font-semibold bg-white text-slate-700 border border-slate-200 hover:border-blue-300 hover:bg-blue-50 transition';
+                btn.innerHTML = `<i class="fa-${on ? 'solid fa-square-check' : 'regular fa-square'} mr-1"></i>${p.label}`;
+                btn.onclick = () => {
+                    if (blueBookAllBusy) return;
+                    if (on) blueBookAllSelected.delete(p.key); else blueBookAllSelected.add(p.key);
+                    renderBlueBookAllPeriods();
+                };
+                box.appendChild(btn);
+            });
+            document.getElementById('bluebook-all-download-btn').disabled = blueBookAllBusy || blueBookAllSelected.size === 0;
+        }
+
+        async function downloadAllClassesBlueBookPdf() {
+            if (!isAcademicOverseer(currentTeacherAccount) || blueBookAllBusy) return;
+            const periodsToExport = BLUEBOOK_ALL_PERIODS.filter(p => blueBookAllSelected.has(p.key));
+            if (!periodsToExport.length) return;
+            const status = document.getElementById('bluebook-all-status');
+            blueBookAllBusy = true;
+            renderBlueBookAllPeriods();
+
+            // Off-screen render target: html2canvas needs the grid in the DOM and visible.
+            const holder = document.createElement('div');
+            holder.style.cssText = "position:absolute; left:-30000px; top:0; background:#fff; color:#000; padding:0; font-family:'Phetsarath OT','Noto Sans Lao',sans-serif;";
+            const title = document.createElement('div');
+            title.style.cssText = 'font-size:26px; font-weight:bold; text-align:center; padding:0 0 16px 0; white-space:nowrap;';
+            const grid = document.createElement('div');
+            holder.appendChild(title);
+            holder.appendChild(grid);
+            document.body.appendChild(holder);
+
+            try {
+                status.innerText = 'ກຳລັງໂຫຼດຂໍ້ມູນທຸກຫ້ອງ...';
+                const classData = await Promise.all(classList.map(cls => Promise.all([
+                    db.ref(`classes/${cls.classKey}/students`).once('value'),
+                    db.ref(`classes/${cls.classKey}/grades`).once('value')
+                ]).then(([studentsSnap, gradesSnap]) => {
+                    const raw = studentsSnap.val();
+                    const clsStudents = raw
+                        ? (Array.isArray(raw) ? raw.filter(Boolean) : Object.values(raw))
+                        : (defaultRostersByClass[cls.classKey] || []);
+                    clsStudents.sort((a, b) => a.id - b.id);
+                    return { cls, students: clsStudents, grades: gradesFromFirebase(gradesSnap.val()), subjects: getSubjectsForClass(cls.classKey) };
+                })));
+
+                const { jsPDF } = window.jspdf;
+                const pxToMm = px => px * 0.264583;
+                const marginMm = 10;
+                let pdf = null;
+                const total = periodsToExport.length * classData.length;
+                let done = 0;
+                for (const period of periodsToExport) {
+                    for (const c of classData) {
+                        done++;
+                        status.innerText = `ກຳລັງສ້າງ PDF ${done}/${total} — ${c.cls.className} ${period.label}`;
+                        title.innerText = `ຄະແນນຕິດປື້ມຟ້າ ${c.cls.className} — ${period.label}`;
+                        renderBlueBookGrid(grid, c.subjects, c.students, c.grades, period.key);
+                        const canvas = await html2canvas(holder, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
+                        const w = pxToMm(canvas.width), h = pxToMm(canvas.height);
+                        const format = [w + marginMm * 2, h + marginMm * 2];
+                        const orientation = w >= h ? 'landscape' : 'portrait';
+                        if (!pdf) pdf = new jsPDF({ orientation, unit: 'mm', format });
+                        else pdf.addPage(format, orientation);
+                        // JPEG, not PNG: 14 classes x several months of PNG pages exceed
+                        // jsPDF's in-memory string limit and the save silently fails.
+                        pdf.addImage(canvas.toDataURL('image/jpeg', 0.75), 'JPEG', marginMm, marginMm, w, h, undefined, 'FAST');
+                    }
+                }
+                const periodNames = periodsToExport.map(p => p.label.replace(/\s+/g, '')).join('_');
+                // jsPDF logs (rather than throws) its own errors and returns undefined, so
+                // build the blob ourselves and only report success when it really exists.
+                const blob = pdf.output('blob');
+                if (!blob || !blob.size) throw new Error('jsPDF could not build the PDF');
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `ຄະແນນຕິດປື້ມຟ້າ_ທຸກຫ້ອງ_${periodNames}.pdf`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+                status.innerText = `✅ ສຳເລັດ: ${total} ໜ້າ`;
+                showToast("📄 ດາວໂຫຼດ PDF ທຸກຫ້ອງ ສຳເລັດແລ້ວ!", "text-emerald-400");
+            } catch (err) {
+                console.error('All-classes blue book PDF failed:', err);
+                status.innerText = '❌ ສ້າງ PDF ບໍ່ສຳເລັດ, ກະລຸນາລອງໃໝ່';
+                showToast("❌ ສ້າງ PDF ບໍ່ສຳເລັດ", "text-rose-400");
+            } finally {
+                holder.remove();
+                blueBookAllBusy = false;
+                renderBlueBookAllPeriods();
+            }
         }
 
         function closeBlueBookModal() {
