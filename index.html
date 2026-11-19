@@ -430,10 +430,16 @@
              in a later step; for now this is just the section shell + heading. -->
         <div id="teacher-home-monthly-by-class-section" class="hidden bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-3">
             <h3 class="text-sm font-bold text-slate-600 uppercase tracking-wider">ຄະແນນປະຈຳເດືອນແຕ່ລະຫ້ອງ</h3>
-            <button type="button" onclick="openAcademicMonthlyReportModal()"
-                    class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 shadow-sm">
-                <i class="fa-solid fa-file-word"></i><span>ສ້າງບົດລາຍງານວຽກວິຊາການປະຈຳເດືອນ</span>
-            </button>
+            <div class="flex flex-wrap gap-2">
+                <button type="button" onclick="openAcademicMonthlyReportModal()"
+                        class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 shadow-sm">
+                    <i class="fa-solid fa-file-lines"></i><span>ສ້າງບົດລາຍງານວຽກວິຊາການປະຈຳເດືອນ</span>
+                </button>
+                <button type="button" onclick="quickDownloadAcademicMonthlyReportAsWord()"
+                        class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 shadow-sm">
+                    <i class="fa-solid fa-file-word"></i><span>ດາວໂຫຼດບົດລາຍງານ (Word)</span>
+                </button>
+            </div>
             <!-- Period picker: single toggle button that reveals a dropdown list (in order)
                  of the same period keys as openMonthlyOverview() (m9/m10/m11/m12/s1/m2/m3/m4/s2/year)
                  so a later step can reuse the existing per-class data-loading logic. Picking an
@@ -4129,8 +4135,12 @@
             const periodSelect = document.getElementById('academic-monthly-report-period');
             periodSelect.innerHTML = monthlyByClassPeriods.filter(p => MONTHLY_PERIODS.includes(p.key))
                 .map(p => `<option value="${p.key}">${p.label}</option>`).join('');
-            if (MONTHLY_PERIODS.includes(selectedMonthlyByClassPeriod)) periodSelect.value = selectedMonthlyByClassPeriod;
+            // Default: the month picked in the all-classes picker, else last calendar month
+            // (the October report is written in November), else ເດືອນ 9.
             const today = new Date();
+            const lastMonthKey = `m${today.getMonth() === 0 ? 12 : today.getMonth()}`;
+            if (MONTHLY_PERIODS.includes(selectedMonthlyByClassPeriod)) periodSelect.value = selectedMonthlyByClassPeriod;
+            else if (MONTHLY_PERIODS.includes(lastMonthKey)) periodSelect.value = lastMonthKey;
             document.getElementById('academic-monthly-report-date').value =
                 `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
             document.getElementById('academic-monthly-report-reporter').value = ACADEMIC_REPORT_DEFAULT_REPORTER;
@@ -4139,7 +4149,17 @@
             document.getElementById('academic-monthly-report-modal').classList.remove('hidden');
             onAcademicMonthlyReportPeriodChange();
         }
+        // Dashboard shortcut: builds the report (default month, see
+        // openAcademicMonthlyReportModal()) with the saved sections and downloads it as Word
+        // as soon as the data is in. The report window stays open to show what was downloaded.
+        let academicMonthlyReportAutoDownload = false;
+        function quickDownloadAcademicMonthlyReportAsWord() {
+            academicMonthlyReportAutoDownload = true;
+            showToast('⏳ ກຳລັງສ້າງບົດລາຍງານ...', 'text-indigo-400');
+            openAcademicMonthlyReportModal();
+        }
         function closeAcademicMonthlyReportModal() {
+            academicMonthlyReportAutoDownload = false;
             document.getElementById('academic-monthly-report-modal').classList.add('hidden');
         }
         function onAcademicMonthlyReportPeriodChange() {
@@ -4221,8 +4241,13 @@
                 renderAcademicMonthlyReportWeakList(academicMonthlyReportRows(classData, periodKey));
                 loadingEl.classList.add('hidden');
                 academicMonthlyReportReady = true;
+                if (academicMonthlyReportAutoDownload) {
+                    academicMonthlyReportAutoDownload = false;
+                    downloadAcademicMonthlyReportAsWord();
+                }
             }).catch(err => {
                 if (requestId !== academicMonthlyReportRequestId) return;
+                academicMonthlyReportAutoDownload = false;
                 console.error('Academic monthly report fetch failed:', err);
                 loadingEl.innerHTML = '❌ ໂຫຼດຂໍ້ມູນບໍ່ໄດ້: ' + (err && err.message ? err.message : err);
             });
