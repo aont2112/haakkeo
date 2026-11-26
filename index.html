@@ -2904,7 +2904,8 @@
             currentTeacherAccount = Object.assign({ code }, teacherAccounts[code]);
             currentUserRole = null;
             document.getElementById('view-login').classList.add('hidden');
-            runPendingGradeImports(currentTeacherAccount);
+            // Undo first, so a wrong import is cleared before any import fills cells again.
+            { const acct = currentTeacherAccount; revertWrongGradeImports(acct).then(undone => setTimeout(() => runPendingGradeImports(acct), undone ? 8200 : 0)); }
 
             let cachedRole = null;
             try { cachedRole = JSON.parse(sessionStorage.getItem('gradebook_active_role')); } catch (e) { cachedRole = null; }
@@ -5447,15 +5448,6 @@
                 '72': [["ທ້າວ ແກ້ວເທບພະໄຊ ສີສົມບັດ", 9], ["ນາງ ກະມົນທິບ ສີພັນທອງ", 9], ["ນາງ ສຸທິດາ ພິມເມືອງ", 9], ["ທ້າວ ສຸລິຍະຈັນແສງ ສຣິດທິຣາຊ", 8], ["ທ້າວ ໄຊສົມພອນ ແສນບຸດຕະລາດ", 6], ["ທ້າວ ໄຊຊະນະ ວໍລະວົງ", 7], ["ນາງ ດາວຊິນີ ຣັດຕະນະ", 9], ["ນາງ ທິບມະນີ ໄຊຍະເສນ", 7], ["ນາງ ນຸ່ນເທວາ ແກ້ວວົງໄຊ", 9], ["ນາງ ລັດສະໝີ ສຸວັນນະບົວທອງ", 6], ["ນາງ ແອນນິສາ ຣາຊຈັກ", 9]],
             }
         }, {
-            // ມ.7/1 ເດືອນ 9 (ກັນຍາ), typed from a photo of the teacher's sheet (column
-            // "ຄະແນນປະຈຳເດືອນ"; 10 students, the other 10 blank). Same rules as above.
-            label: 'ພາສາຢີ່ປຸ່ນ ເດືອນ 9 (ມ.7/1)',
-            subject: 'japanese',
-            period: 'm9',
-            scoresByClass: {
-                '71': [["ທ້າວ ກ້ອງຟ້າ ແກ້ວປະເສີດ", 9], ["ທ້າວ ໄກສອນ ທອງມະນີວົງ", 9], ["ທ້າວ ເດຊາພົນ ສົມສະນິດ", 9], ["ທ້າວ ທັນສະນິດ ອິນສີຊຽງໃໝ່", 8], ["ນາງ ນໍ້າໜຶ່ງ ພິລາຈັນ", 9], ["ທ້າວ ພູຄໍາ ແສງດາລາ", 9], ["ນາງ ລະລິດາ ເພັດຊະລາດ", 8], ["ນາງ ອະກິໂນະ ວິຊາປຣາ ຄາວາມູຣະ", 9], ["ນາງ ວັນຣິນດາ ນິລະວັນ", 5], ["ນາງ ອາລິສາ ຄໍາສົງກາ", 5]],
-            }
-        }, {
             // ມ.6/2 ເດືອນ 11, typed from a photo of the teacher's sheet (column
             // "ຄະແນນປະຈຳເດືອນ"; 10 students, the other 12 blank). Same rules as above.
             label: 'ພາສາຢີ່ປຸ່ນ ເດືອນ 11 (ມ.6/2)',
@@ -5483,6 +5475,62 @@
             let s = String(name || '').replace(/[^຀-໿\s]/g, '').trim();
             s = s.replace(/^(ທ້າວ|ທາວ|ນາງ|ທ)\s+/, '');
             return s.replace(/[\s່-ໍ]/g, '');
+        }
+
+        // UNDO: a ມ.7/1 ເດືອນ 9 Japanese import was added from a photo that turned out to be
+        // the wrong sheet (removed from PENDING_GRADE_IMPORTS). The old import only ever
+        // wrote into a class whose m9 Japanese column was completely empty, so if it ran,
+        // ມ.7/1 m9 is now exactly these 10 scores with every other student blank. Only in
+        // that exact state are the 10 cells emptied again (= back to how they were); any
+        // other state means it never ran or someone has since edited m9, so nothing is touched.
+        const REVERTED_GRADE_IMPORTS = [{
+            label: 'ພາສາຢີ່ປຸ່ນ ເດືອນ 9 ມ.7/1',
+            subject: 'japanese',
+            period: 'm9',
+            classKey: '71',
+            scores: [["ທ້າວ ກ້ອງຟ້າ ແກ້ວປະເສີດ", 9], ["ທ້າວ ໄກສອນ ທອງມະນີວົງ", 9], ["ທ້າວ ເດຊາພົນ ສົມສະນິດ", 9], ["ທ້າວ ທັນສະນິດ ອິນສີຊຽງໃໝ່", 8], ["ນາງ ນໍ້າໜຶ່ງ ພິລາຈັນ", 9], ["ທ້າວ ພູຄໍາ ແສງດາລາ", 9], ["ນາງ ລະລິດາ ເພັດຊະລາດ", 8], ["ນາງ ອະກິໂນະ ວິຊາປຣາ ຄາວາມູຣະ", 9], ["ນາງ ວັນຣິນດາ ນິລະວັນ", 5], ["ນາງ ອາລິສາ ຄໍາສົງກາ", 5]]
+        }];
+
+        function revertWrongGradeImports(account) {
+            if (!account) return Promise.resolve(false);
+            const nonEmpty = v => v !== undefined && v !== null && String(v).trim() !== '';
+            return Promise.all(REVERTED_GRADE_IMPORTS.map(rev => {
+                const allowed = account.isAdmin === true ||
+                    (account.homeroomClasses || []).includes(rev.classKey) ||
+                    (account.subjectRoles || []).some(r => r.classKey === rev.classKey && r.subject === rev.subject);
+                if (!allowed) return null;
+                const subjectRef = db.ref(`classes/${rev.classKey}/grades/${rev.subject}`);
+                return Promise.all([subjectRef.once('value'), db.ref(`classes/${rev.classKey}/students`).once('value')])
+                    .then(([gradesSnap, studentsSnap]) => {
+                        const existing = gradesSnap.val() || {};
+                        const raw = studentsSnap.val();
+                        const roster = raw ? (Array.isArray(raw) ? raw.filter(Boolean) : Object.values(raw)) : [];
+                        const byKey = {};
+                        roster.forEach(st => { const k = gradeImportNameKey(st.name); (byKey[k] = byKey[k] || []).push(st); });
+                        const listedIds = new Set();
+                        for (const [name, score] of rev.scores) {
+                            const hits = byKey[gradeImportNameKey(name)] || [];
+                            if (hits.length !== 1) return null;
+                            const node = (existing[`id_${hits[0].id}`] || {})[rev.period] || {};
+                            if (parseFloat(node.exam) !== score) return null;
+                            listedIds.add(hits[0].id);
+                        }
+                        const othersBlank = roster.every(st => listedIds.has(st.id) ||
+                            !nonEmpty(((existing[`id_${st.id}`] || {})[rev.period] || {}).exam));
+                        if (!othersBlank) return null;
+                        const updates = {};
+                        listedIds.forEach(id => {
+                            updates[`id_${id}/${rev.period}/exam`] = '';
+                            updates[`id_${id}/${rev.period}/class`] = '';
+                        });
+                        return subjectRef.update(updates).then(() => rev.label);
+                    })
+                    .catch(err => { console.error(`Grade import revert failed (${rev.label}):`, err); return null; });
+            })).then(done => {
+                const labels = done.filter(Boolean);
+                if (labels.length) showToast(`↩️ ລຶບຄະແນນທີ່ນຳເຂົ້າຜິດອອກແລ້ວ — ${labels.join(', ')}`, "text-emerald-400", 8000);
+                return labels.length > 0;
+            });
         }
 
         // Each listed student is filled in on their own, never the whole class at once:
