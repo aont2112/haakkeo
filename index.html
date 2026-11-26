@@ -5417,7 +5417,8 @@
             }).catch(callback);
         }
 
-        // One-time import: ພາສາຢີ່ປຸ່ນ ເດືອນ 10 (m10) scores for ມ.5–ມ.7, from the Japanese
+        // One-time imports of scores from the Japanese teacher's Excel files. First:
+        // ພາສາຢີ່ປຸ່ນ ເດືອນ 10 (m10) scores for ມ.5–ມ.7, from the Japanese
         // teacher's Excel file (japan_language_M5-M7_month10.xlsx, column "ຄະແນນປະຈຳເດືອນ").
         // Students left blank in that file are not listed here and stay blank.
         // Rows are matched to the LIVE roster by name (see gradeImportNameKey), never by row
@@ -5437,6 +5438,15 @@
                 '71': [["ທ້າວ ກ້ອງຟ້າ ແກ້ວປະເສີດ", 6], ["ທ້າວ ໄກສອນ ທອງມະນີວົງ", 8], ["ທ້າວ ເດຊາພົນ ສົມສະນິດ", 8], ["ທ້າວ ທັນສະນິດ ອິນສີຊຽງໃໝ່", 2], ["ນາງ ນໍ້າໜຶ່ງ ພິລາຈັນ", 4], ["ທ້າວ ພູຄໍາ ແສງດາລາ", 7], ["ນາງ ລະລິດາ ເພັດຊະລາດ", 7], ["ນາງ ອະກິໂນະ ວິຊາປຣາ ຄາວາມູຣະ", 6], ["ນາງ ວັນຣິນດາ ນິລະວັນ", 5], ["ນາງ ອາລິສາ ຄໍາສົງກາ", 7]],
                 '72': [["ທ້າວ ແກ້ວເທບພະໄຊ ສີສົມບັດ", 8], ["ນາງ ກະມົນທິບ ສີພັນທອງ", 8], ["ນາງ ສຸທິດາ ພິມເມືອງ", 9], ["ທ້າວ ສຸລິຍະຈັນແສງ ສຣິດທິຣາຊ", 2], ["ທ້າວ ໄຊສົມພອນ ແສນບຸດຕະລາດ", 2], ["ທ້າວ ໄຊຊະນະ ວໍລະວົງ", 5], ["ນາງ ດາວຊິນີ ຣັດຕະນະ", 4], ["ນາງ ນຸ່ນເທວາ ແກ້ວວົງໄຊ", 9], ["ນາງ ລັດສະໝີ ສຸວັນນະບົວທອງ", 3], ["ນາງ ແອນນິສາ ຣາຊຈັກ", 5]],
             }
+        }, {
+            // ມ.7/2 ເດືອນ 11 (file "…7.2-3.xlsx", column "ຄະແນນປະຈຳເດືອນ" = ສ່ວນຮ່ວມ +
+            // ວຽກບ້ານ + ກວດການ້ອຍ + ສອບເສັງ out of 10). Same rules as the m10 import above.
+            label: 'ພາສາຢີ່ປຸ່ນ ເດືອນ 11 (ມ.7/2)',
+            subject: 'japanese',
+            period: 'm11',
+            scoresByClass: {
+                '72': [["ທ້າວ ແກ້ວເທບພະໄຊ ສີສົມບັດ", 9], ["ນາງ ກະມົນທິບ ສີພັນທອງ", 9], ["ນາງ ສຸທິດາ ພິມເມືອງ", 9], ["ທ້າວ ສຸລິຍະຈັນແສງ ສຣິດທິຣາຊ", 8], ["ທ້າວ ໄຊສົມພອນ ແສນບຸດຕະລາດ", 6], ["ທ້າວ ໄຊຊະນະ ວໍລະວົງ", 7], ["ນາງ ດາວຊິນີ ຣັດຕະນະ", 9], ["ນາງ ທິບມະນີ ໄຊຍະເສນ", 7], ["ນາງ ນຸ່ນເທວາ ແກ້ວວົງໄຊ", 9], ["ນາງ ລັດສະໝີ ສຸວັນນະບົວທອງ", 6], ["ນາງ ແອນນິສາ ຣາຊຈັກ", 9]],
+            }
         }];
 
         // "ທ້າວ ໄຊ​ສົມ​ພອນ  ຈັນ​ທາ​ພອນ" and "ທ ໄຊສົມພອນ ຈັນທາພອນ" -> same key: Lao letters only
@@ -5450,14 +5460,15 @@
 
         function runPendingGradeImports(account) {
             if (!account) return;
-            PENDING_GRADE_IMPORTS.forEach(job => {
+            // One job at a time, so each job's toasts are seen before the next job's.
+            PENDING_GRADE_IMPORTS.reduce((chain, job) => chain.then(() => {
                 const classKeys = Object.keys(job.scoresByClass).filter(classKey =>
                     account.isAdmin === true ||
                     (account.homeroomClasses || []).includes(classKey) ||
                     (account.subjectRoles || []).some(r => r.classKey === classKey && r.subject === job.subject));
                 if (!classKeys.length) return;
 
-                Promise.all(classKeys.map(classKey => {
+                return Promise.all(classKeys.map(classKey => {
                     const subjectRef = db.ref(`classes/${classKey}/grades/${job.subject}`);
                     return Promise.all([subjectRef.once('value'), db.ref(`classes/${classKey}/students`).once('value')])
                         .then(([gradesSnap, studentsSnap]) => {
@@ -5505,8 +5516,10 @@
                         setTimeout(() => showToast(`⚠️ ${job.label}: ບໍ່ພົບຊື່ໃນລາຍຊື່ຫ້ອງ ${unmatched.length} ຄົນ — ${unmatched.join(', ')}`, "text-amber-400", 15000), imported ? 5200 : 0);
                     }
                     if (failed.length) console.warn(`Grade import (${job.label}) failed for:`, failed);
+                    const shownMs = (imported ? 5200 : 0) + (unmatched.length ? 15200 : 0);
+                    return new Promise(resolve => setTimeout(resolve, shownMs));
                 });
-            });
+            }), Promise.resolve());
         }
 
         // Points the four data refs at this class's namespaced path and starts listening.
