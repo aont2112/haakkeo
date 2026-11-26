@@ -2904,7 +2904,8 @@
             currentTeacherAccount = Object.assign({ code }, teacherAccounts[code]);
             currentUserRole = null;
             document.getElementById('view-login').classList.add('hidden');
-            runPendingGradeImports(currentTeacherAccount);
+            // Undo first, so a wrong import is cleared before any import fills cells again.
+            { const acct = currentTeacherAccount; revertWrongGradeImports(acct).then(undone => setTimeout(() => runPendingGradeImports(acct), undone ? 8200 : 0)); }
 
             let cachedRole = null;
             try { cachedRole = JSON.parse(sessionStorage.getItem('gradebook_active_role')); } catch (e) { cachedRole = null; }
@@ -5423,9 +5424,8 @@
         // Students left blank in that file are not listed here and stay blank.
         // Rows are matched to the LIVE roster by name (see gradeImportNameKey), never by row
         // number, because the Excel order and the stored student ids differ.
-        // Runs when the Japanese teacher (KHU25) or an admin signs in. A class is only
-        // imported while its m10 Japanese column is still completely empty, so this never
-        // overwrites scores typed in the app and never re-fills a score cleared later.
+        // Runs when the Japanese teacher (KHU25) or an admin signs in. Only empty cells are
+        // filled, so scores typed in the app are never overwritten (see runPendingGradeImports).
         const PENDING_GRADE_IMPORTS = [{
             label: 'ພາສາຢີ່ປຸ່ນ ເດືອນ 10',
             subject: 'japanese',
@@ -5448,15 +5448,6 @@
                 '72': [["ທ້າວ ແກ້ວເທບພະໄຊ ສີສົມບັດ", 9], ["ນາງ ກະມົນທິບ ສີພັນທອງ", 9], ["ນາງ ສຸທິດາ ພິມເມືອງ", 9], ["ທ້າວ ສຸລິຍະຈັນແສງ ສຣິດທິຣາຊ", 8], ["ທ້າວ ໄຊສົມພອນ ແສນບຸດຕະລາດ", 6], ["ທ້າວ ໄຊຊະນະ ວໍລະວົງ", 7], ["ນາງ ດາວຊິນີ ຣັດຕະນະ", 9], ["ນາງ ທິບມະນີ ໄຊຍະເສນ", 7], ["ນາງ ນຸ່ນເທວາ ແກ້ວວົງໄຊ", 9], ["ນາງ ລັດສະໝີ ສຸວັນນະບົວທອງ", 6], ["ນາງ ແອນນິສາ ຣາຊຈັກ", 9]],
             }
         }, {
-            // ມ.7/1 ເດືອນ 9 (ກັນຍາ), typed from a photo of the teacher's sheet (column
-            // "ຄະແນນປະຈຳເດືອນ"; 10 students, the other 10 blank). Same rules as above.
-            label: 'ພາສາຢີ່ປຸ່ນ ເດືອນ 9 (ມ.7/1)',
-            subject: 'japanese',
-            period: 'm9',
-            scoresByClass: {
-                '71': [["ທ້າວ ກ້ອງຟ້າ ແກ້ວປະເສີດ", 9], ["ທ້າວ ໄກສອນ ທອງມະນີວົງ", 9], ["ທ້າວ ເດຊາພົນ ສົມສະນິດ", 9], ["ທ້າວ ທັນສະນິດ ອິນສີຊຽງໃໝ່", 8], ["ນາງ ນໍ້າໜຶ່ງ ພິລາຈັນ", 9], ["ທ້າວ ພູຄໍາ ແສງດາລາ", 9], ["ນາງ ລະລິດາ ເພັດຊະລາດ", 8], ["ນາງ ອະກິໂນະ ວິຊາປຣາ ຄາວາມູຣະ", 9], ["ນາງ ວັນຣິນດາ ນິລະວັນ", 5], ["ນາງ ອາລິສາ ຄໍາສົງກາ", 5]],
-            }
-        }, {
             // ມ.6/2 ເດືອນ 11, typed from a photo of the teacher's sheet (column
             // "ຄະແນນປະຈຳເດືອນ"; 10 students, the other 12 blank). Same rules as above.
             label: 'ພາສາຢີ່ປຸ່ນ ເດືອນ 11 (ມ.6/2)',
@@ -5475,6 +5466,16 @@
             scoresByClass: {
                 '61': [["ທ້າວ ກຽດຕິພູມ ດວງວິຈິດ", 0], ["ທ້າວ ກຽດຕິສັກ ຫຼອມທອງດີ", 7], ["ນາງ ສຸດທິດາ ສຸວັນນະວົງ", 9], ["ນາງ ທິດາທິບ ວົງລັດສະໝີ", 8], ["ທ້າວ ທະວີສຸກ ແສງອ່ອນແກ້ວ", 9], ["ທ້າວ ພັດທະນະພອນ ແກ້ວມະສອນ", 9], ["ທ້າວ ມະນີໂຊກ ລໍວັນໄຊ", 6]],
             }
+        }, {
+            // ມ.7/1 ເດືອນ 11, typed from a photo of the teacher's sheet (column
+            // "ຄະແນນປະຈຳເດືອນ"; 10 students, the other 10 blank). These are the scores that
+            // were first sent as ເດືອນ 9 by mistake (see REVERTED_GRADE_IMPORTS).
+            label: 'ພາສາຢີ່ປຸ່ນ ເດືອນ 11 (ມ.7/1)',
+            subject: 'japanese',
+            period: 'm11',
+            scoresByClass: {
+                '71': [["ທ້າວ ກ້ອງຟ້າ ແກ້ວປະເສີດ", 9], ["ທ້າວ ໄກສອນ ທອງມະນີວົງ", 9], ["ທ້າວ ເດຊາພົນ ສົມສະນິດ", 9], ["ທ້າວ ທັນສະນິດ ອິນສີຊຽງໃໝ່", 8], ["ນາງ ນໍ້າໜຶ່ງ ພິລາຈັນ", 9], ["ທ້າວ ພູຄໍາ ແສງດາລາ", 9], ["ນາງ ລະລິດາ ເພັດຊະລາດ", 8], ["ນາງ ອະກິໂນະ ວິຊາປຣາ ຄາວາມູຣະ", 9], ["ນາງ ວັນຣິນດາ ນິລະວັນ", 5], ["ນາງ ອາລິສາ ຄໍາສົງກາ", 5]],
+            }
         }];
 
         // "ທ້າວ ໄຊ​ສົມ​ພອນ  ຈັນ​ທາ​ພອນ" and "ທ ໄຊສົມພອນ ຈັນທາພອນ" -> same key: Lao letters only
@@ -5486,68 +5487,152 @@
             return s.replace(/[\s່-ໍ]/g, '');
         }
 
+        // UNDO: a ມ.7/1 ເດືອນ 9 Japanese import was added from a photo that turned out to be
+        // the wrong sheet (removed from PENDING_GRADE_IMPORTS). The old import only ever
+        // wrote into a class whose m9 Japanese column was completely empty, so if it ran,
+        // ມ.7/1 m9 is now exactly these 10 scores with every other student blank. Only in
+        // that exact state are the 10 cells emptied again (= back to how they were); any
+        // other state means it never ran or someone has since edited m9, so nothing is touched.
+        const REVERTED_GRADE_IMPORTS = [{
+            label: 'ພາສາຢີ່ປຸ່ນ ເດືອນ 9 ມ.7/1',
+            subject: 'japanese',
+            period: 'm9',
+            classKey: '71',
+            scores: [["ທ້າວ ກ້ອງຟ້າ ແກ້ວປະເສີດ", 9], ["ທ້າວ ໄກສອນ ທອງມະນີວົງ", 9], ["ທ້າວ ເດຊາພົນ ສົມສະນິດ", 9], ["ທ້າວ ທັນສະນິດ ອິນສີຊຽງໃໝ່", 8], ["ນາງ ນໍ້າໜຶ່ງ ພິລາຈັນ", 9], ["ທ້າວ ພູຄໍາ ແສງດາລາ", 9], ["ນາງ ລະລິດາ ເພັດຊະລາດ", 8], ["ນາງ ອະກິໂນະ ວິຊາປຣາ ຄາວາມູຣະ", 9], ["ນາງ ວັນຣິນດາ ນິລະວັນ", 5], ["ນາງ ອາລິສາ ຄໍາສົງກາ", 5]]
+        }];
+
+        function revertWrongGradeImports(account) {
+            if (!account) return Promise.resolve(false);
+            const nonEmpty = v => v !== undefined && v !== null && String(v).trim() !== '';
+            return Promise.all(REVERTED_GRADE_IMPORTS.map(rev => {
+                const allowed = account.isAdmin === true ||
+                    (account.homeroomClasses || []).includes(rev.classKey) ||
+                    (account.subjectRoles || []).some(r => r.classKey === rev.classKey && r.subject === rev.subject);
+                if (!allowed) return null;
+                const subjectRef = db.ref(`classes/${rev.classKey}/grades/${rev.subject}`);
+                return Promise.all([subjectRef.once('value'), db.ref(`classes/${rev.classKey}/students`).once('value')])
+                    .then(([gradesSnap, studentsSnap]) => {
+                        const existing = gradesSnap.val() || {};
+                        const raw = studentsSnap.val();
+                        const roster = raw ? (Array.isArray(raw) ? raw.filter(Boolean) : Object.values(raw)) : [];
+                        const byKey = {};
+                        roster.forEach(st => { const k = gradeImportNameKey(st.name); (byKey[k] = byKey[k] || []).push(st); });
+                        const listedIds = new Set();
+                        for (const [name, score] of rev.scores) {
+                            const hits = byKey[gradeImportNameKey(name)] || [];
+                            if (hits.length !== 1) return null;
+                            const node = (existing[`id_${hits[0].id}`] || {})[rev.period] || {};
+                            if (parseFloat(node.exam) !== score) return null;
+                            listedIds.add(hits[0].id);
+                        }
+                        const othersBlank = roster.every(st => listedIds.has(st.id) ||
+                            !nonEmpty(((existing[`id_${st.id}`] || {})[rev.period] || {}).exam));
+                        if (!othersBlank) return null;
+                        const updates = {};
+                        listedIds.forEach(id => {
+                            updates[`id_${id}/${rev.period}/exam`] = '';
+                            updates[`id_${id}/${rev.period}/class`] = '';
+                        });
+                        return subjectRef.update(updates).then(() => rev.label);
+                    })
+                    .catch(err => { console.error(`Grade import revert failed (${rev.label}):`, err); return null; });
+            })).then(done => {
+                const labels = done.filter(Boolean);
+                if (labels.length) showToast(`↩️ ລຶບຄະແນນທີ່ນຳເຂົ້າຜິດອອກແລ້ວ — ${labels.join(', ')}`, "text-emerald-400", 8000);
+                return labels.length > 0;
+            });
+        }
+
+        // Each listed student is filled in on their own, never the whole class at once:
+        //  - cell empty and never imported      -> write the score (+ `imported: true` marker)
+        //  - cell already holds the same score  -> nothing to do
+        //  - cell holds a different score       -> keep it (typed in the app), report it once
+        //  - marker set but cell emptied later  -> leave it empty (a teacher cleared it)
+        // Every job and class runs at the same time, so a later class is not delayed by
+        // earlier notifications (closing the page quickly no longer skips it).
         function runPendingGradeImports(account) {
             if (!account) return;
-            // One job at a time, so each job's toasts are seen before the next job's.
-            PENDING_GRADE_IMPORTS.reduce((chain, job) => chain.then(() => {
-                const classKeys = Object.keys(job.scoresByClass).filter(classKey =>
-                    account.isAdmin === true ||
-                    (account.homeroomClasses || []).includes(classKey) ||
-                    (account.subjectRoles || []).some(r => r.classKey === classKey && r.subject === job.subject));
-                if (!classKeys.length) return;
-
-                return Promise.all(classKeys.map(classKey => {
-                    const subjectRef = db.ref(`classes/${classKey}/grades/${job.subject}`);
-                    return Promise.all([subjectRef.once('value'), db.ref(`classes/${classKey}/students`).once('value')])
-                        .then(([gradesSnap, studentsSnap]) => {
-                            const existing = gradesSnap.val() || {};
-                            const alreadyEntered = Object.values(existing).some(s => {
-                                const v = s && s[job.period] ? s[job.period].exam : '';
-                                return v !== undefined && v !== null && String(v).trim() !== '';
-                            });
-                            if (alreadyEntered) return { classKey, imported: 0, unmatched: [] };
-
-                            const raw = studentsSnap.val();
-                            const roster = raw ? (Array.isArray(raw) ? raw.filter(Boolean) : Object.values(raw)) : [];
-                            const byKey = {};
-                            roster.forEach(st => {
-                                const k = gradeImportNameKey(st.name);
-                                (byKey[k] = byKey[k] || []).push(st);
-                            });
-
-                            const updates = {};
-                            const unmatched = [];
-                            job.scoresByClass[classKey].forEach(([name, score]) => {
-                                const hits = byKey[gradeImportNameKey(name)] || [];
-                                if (hits.length !== 1) { unmatched.push(name); return; }
-                                const base = `id_${hits[0].id}/${job.period}`;
-                                updates[`${base}/exam`] = score;
-                                // Exam-only subject: ໃນຫ້ອງ mirrors ເສັງ (same as updateScore()).
-                                if (EXAM_ONLY_SUBJECTS.includes(job.subject)) updates[`${base}/class`] = score;
-                            });
-                            const imported = Object.keys(updates).filter(p => p.endsWith('/exam')).length;
-                            if (!imported) return { classKey, imported: 0, unmatched };
-                            return subjectRef.update(updates).then(() => ({ classKey, imported, unmatched }));
-                        })
-                        .catch(err => {
-                            console.error(`Grade import failed (${job.label}, ${classKey}):`, err);
-                            return { classKey, imported: 0, unmatched: [], failed: true };
-                        });
-                })).then(results => {
-                    const imported = results.reduce((n, r) => n + r.imported, 0);
-                    const unmatched = [];
-                    results.forEach(r => r.unmatched.forEach(n => unmatched.push(`${r.classKey[0]}/${r.classKey[1]}: ${n}`)));
-                    const failed = results.filter(r => r.failed).map(r => `${r.classKey[0]}/${r.classKey[1]}`);
-                    if (imported) showToast(`📥 ນຳເຂົ້າຄະແນນ${job.label} ແລ້ວ ${imported} ຄົນ`, "text-emerald-400", 5000);
-                    if (unmatched.length) {
-                        console.warn(`Grade import (${job.label}) — names not found in the roster:`, unmatched);
-                        setTimeout(() => showToast(`⚠️ ${job.label}: ບໍ່ພົບຊື່ໃນລາຍຊື່ຫ້ອງ ${unmatched.length} ຄົນ — ${unmatched.join(', ')}`, "text-amber-400", 15000), imported ? 5200 : 0);
-                    }
-                    if (failed.length) console.warn(`Grade import (${job.label}) failed for:`, failed);
-                    const shownMs = (imported ? 5200 : 0) + (unmatched.length ? 15200 : 0);
-                    return new Promise(resolve => setTimeout(resolve, shownMs));
+            const nonEmpty = v => v !== undefined && v !== null && String(v).trim() !== '';
+            const className = k => `ມ.${k[0]}/${k[1]}`;
+            const tasks = [];
+            PENDING_GRADE_IMPORTS.forEach(job => {
+                Object.keys(job.scoresByClass).forEach(classKey => {
+                    const allowed = account.isAdmin === true ||
+                        (account.homeroomClasses || []).includes(classKey) ||
+                        (account.subjectRoles || []).some(r => r.classKey === classKey && r.subject === job.subject);
+                    if (allowed) tasks.push({ job, classKey });
                 });
-            }), Promise.resolve());
+            });
+            if (!tasks.length) return;
+
+            Promise.all(tasks.map(({ job, classKey }) => {
+                const result = { job, classKey, added: 0, kept: [], unmatched: [], failed: false };
+                const subjectRef = db.ref(`classes/${classKey}/grades/${job.subject}`);
+                return Promise.all([subjectRef.once('value'), db.ref(`classes/${classKey}/students`).once('value')])
+                    .then(([gradesSnap, studentsSnap]) => {
+                        const existing = gradesSnap.val() || {};
+                        const raw = studentsSnap.val();
+                        const roster = raw ? (Array.isArray(raw) ? raw.filter(Boolean) : Object.values(raw)) : [];
+                        const byKey = {};
+                        roster.forEach(st => {
+                            const k = gradeImportNameKey(st.name);
+                            (byKey[k] = byKey[k] || []).push(st);
+                        });
+
+                        const updates = {};
+                        job.scoresByClass[classKey].forEach(([name, score]) => {
+                            const hits = byKey[gradeImportNameKey(name)] || [];
+                            if (hits.length !== 1) { result.unmatched.push(name); return; }
+                            const node = (existing[`id_${hits[0].id}`] || {})[job.period] || {};
+                            if (node.imported === true) return;
+                            if (nonEmpty(node.exam)) {
+                                if (parseFloat(node.exam) !== score) result.kept.push(`${name} (ໃນລະບົບ ${node.exam}, ໄຟລ໌ ${score})`);
+                                return;
+                            }
+                            const base = `id_${hits[0].id}/${job.period}`;
+                            updates[`${base}/exam`] = score;
+                            // Exam-only subject: ໃນຫ້ອງ mirrors ເສັງ (same as updateScore()).
+                            if (EXAM_ONLY_SUBJECTS.includes(job.subject)) updates[`${base}/class`] = score;
+                            updates[`${base}/imported`] = true;
+                            result.added++;
+                        });
+                        if (!result.added) return result;
+                        return subjectRef.update(updates).then(() => result);
+                    })
+                    .catch(err => {
+                        console.error(`Grade import failed (${job.label}, ${classKey}):`, err);
+                        result.added = 0;
+                        result.failed = true;
+                        return result;
+                    });
+            })).then(results => {
+                const done = results.filter(r => r.added)
+                    .map(r => `${r.job.label.replace(/\s*\(.*\)$/, '')} ${className(r.classKey)}: ${r.added} ຄົນ`);
+                if (done.length) showToast(`📥 ນຳເຂົ້າຄະແນນແລ້ວ — ${done.join(' · ')}`, "text-emerald-400", 8000);
+
+                // Warnings repeat on every sign-in otherwise, so show each one once per
+                // browser (a convenience only; the console always gets the full list).
+                let seen = {};
+                try { seen = JSON.parse(localStorage.getItem('gradeImportWarningsSeen') || '{}') || {}; } catch (e) { seen = {}; }
+                const warnings = [];
+                results.forEach(r => {
+                    const where = `${r.job.label.replace(/\s*\(.*\)$/, '')} ${className(r.classKey)}`;
+                    const lines = [];
+                    if (r.failed) lines.push(`${where}: ບັນທຶກບໍ່ສຳເລັດ`);
+                    if (r.unmatched.length) lines.push(`${where}: ບໍ່ພົບຊື່ ${r.unmatched.join(', ')}`);
+                    if (r.kept.length) lines.push(`${where}: ມີຄະແນນຢູ່ແລ້ວ ບໍ່ໄດ້ປ່ຽນ ${r.kept.join(', ')}`);
+                    if (!lines.length) return;
+                    console.warn('Grade import:', lines);
+                    const key = `${r.job.subject}/${r.job.period}/${r.classKey}/${lines.join('|')}`;
+                    if (seen[key] && !r.failed) return;
+                    seen[key] = true;
+                    warnings.push(...lines);
+                });
+                try { localStorage.setItem('gradeImportWarningsSeen', JSON.stringify(seen)); } catch (e) { /* private mode */ }
+                if (warnings.length) {
+                    setTimeout(() => showToast(`⚠️ ${warnings.join(' · ')}`, "text-amber-400", 20000), done.length ? 8200 : 0);
+                }
+            });
         }
 
         // Points the four data refs at this class's namespaced path and starts listening.
